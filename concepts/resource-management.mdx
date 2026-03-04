@@ -1,0 +1,541 @@
+---
+title: Resource Management
+description: Teller allocation, state transitions, and service lifecycle management
+---
+
+# Resource Management
+
+In SimulationBank, **tellers** are the finite resources that customers compete for. Effective resource management ensures customers are served efficiently while maintaining realistic constraints.
+
+## Teller Entity
+
+Defined in `backend/src/teller/domain/teller.py:11`:
+
+```python
+@dataclass
+class Teller:
+    """
+    Entidad: ventanilla (cajero) del banco
+    Representa un recurso del sistema que atiende clientes uno a la vez.
+    """
+    id: str  # Identificador alfanumérico de la ventanilla (ej. 'T-1')
+    status: TellerStatus = TellerStatus.IDLE  # Estado operativo actual (libre, ocupado o averiado)
+    current_customer: Optional[Customer] = None  # Referencia al cliente que está siendo atendido en este momento
+    sessions_served: int = 0  # Contador que acumula cuántos clientes han sido atendidos exitosamente
+```
+
+### Teller Attributes
+
+<CardGroup cols={2}>
+  <Card title="id" icon="fingerprint">
+    Unique identifier (e.g., "T-1", "T-2", "T-3")
+    
+    Generated during initialization as `f"T-{i+1}"`
+  </Card>
+  
+  <Card title="status" icon="circle-dot">
+    Current operational state:
+    - **IDLE**: Available for service
+    - **BUSY**: Currently serving a customer
+    - **BROKEN**: Out of service (future feature)
+  </Card>
+  
+  <Card title="current_customer" icon="user">
+    Reference to the Customer entity being served
+    
+    `None` when status is IDLE
+  </Card>
+  
+  <Card title="sessions_served" icon="calculator">
+    Performance counter tracking total customers served
+    
+    Increments on each SERVICE_END
+  </Card>
+</CardGroup>
+
+## Teller States
+
+```python
+# backend/src/teller/domain/teller_status.py
+class TellerStatus(Enum):
+    IDLE = "IDLE"    # Ready to serve
+    BUSY = "BUSY"    # Currently serving
+    BROKEN = "BROKEN"  # Out of service (future)
+```
+
+### State Diagram
+
+```
+          start_service()
+    IDLE ────────────────► BUSY
+     ▲                        │
+     │                        │
+     └─────── end_service() ───┘
+     
+     (BROKEN state not yet implemented)
+```
+
+## Teller Lifecycle Methods
+
+### start_service()
+
+From `teller.py:21-31`:
+
+```python
+def start_service(self, customer: Customer, current_time: float) -> None:
+    """
+    Inicia el proceso de atención para un cliente específico.
+    Cambia el estado de la ventanilla a ocupado (BUSY).
+    Registra el cliente actual y actualiza el estado del cliente a 'BEING_SERVED',
+    guardando el momento exacto en el que inició su servicio.
+    """
+    self.status = TellerStatus.BUSY
+    self.current_customer = customer
+    customer.status = "BEING_SERVED"
+    customer.service_start_time = current_time
+```
+
+<Steps>
+  <Step title="Change teller status">
+    `IDLE → BUSY`
+  </Step>
+  
+  <Step title="Assign customer">
+    Store reference to Customer entity
+  </Step>
+  
+  <Step title="Update customer status">
+    Customer: `WAITING → BEING_SERVED`
+  </Step>
+  
+  <Step title="Record start time">
+    Timestamp when service began (for wait time calculation)
+  </Step>
+</Steps>
+
+### end_service()
+
+From `teller.py:33-47`:
+
+```python
+def end_service(self) -> Optional[Customer]:
+    """
+    Finaliza el servicio del cliente que está siendo atendido actualmente.
+    Cambia el estado del cliente a completado ('COMPLETED').
+    Libera la ventanilla cambiándola a estado 'IDLE'.
+    Incrementa el número de sesiones servidas y devuelve el cliente que finalizó.
+    """
+    if not self.current_customer:
+        return None
+    served = self.current_customer
+    served.status = "COMPLETED"
+    self.current_customer = None
+    self.status = TellerStatus.IDLE
+    self.sessions_served += 1
+    return served
+```
+
+<Steps>
+  <Step title="Update customer status">
+    Customer: `BEING_SERVED → COMPLETED`
+  </Step>
+  
+  <Step title="Clear customer reference">
+    `current_customer = None`
+  </Step>
+  
+  <Step title="Change teller status">
+    `BUSY → IDLE`
+  </Step>
+  
+  <Step title="Increment counter">
+    `sessions_served += 1`
+  </Step>
+  
+  <Step title="Return served customer">
+    For metrics/logging purposes
+  </Step>
+</Steps>
+
+## Teller Initialization
+
+From `simulation.py:46-49`:
+
+```python
+# In DiscreteEventSimulation.initialize()
+for i in range(self.config.num_tellers):
+    t_id = f"T-{i+1}"
+    self.tellers[t_id] = Teller(id=t_id)
+```
+
+**Example:** `num_tellers=3` creates:
+- `"T-1": Teller(id="T-1", status=IDLE, current_customer=None, sessions_served=0)`
+- `"T-2": Teller(id="T-2", status=IDLE, current_customer=None, sessions_served=0)`
+- `"T-3": Teller(id="T-3", status=IDLE, current_customer=None, sessions_served=0)`
+
+## Teller Assignment Algorithm
+
+From `simulation.py:154-168`:
+
+```python
+def _assign_free_teller(self) -> None:
+    """
+    Busca secuencialmente si existe una ventanilla inactiva (IDLE). 
+    En caso de encontrar una y haber gente esperando, extrae al primer cliente 
+    de la fila y programa el evento SERVICE_START para esa ventanilla en el reloj actual.
+    """
+    if not self.waiting_queue:
+        return
+        
+    for t_id, teller in self.tellers.items():
+        if teller.status == "IDLE" or getattr(teller.status, "value", None) == "IDLE":
+            next_customer = self.waiting_queue.pop(0)  # Get highest-priority customer
+            # Schedule immediate SERVICE_START
+            self.schedule_event(SimulationEvent(self.clock, EventType.SERVICE_START, 
+                                                customer=next_customer, teller_id=t_id))
+            return  # Assign only one customer per call
+```
+
+### Assignment Logic
+
+<Steps>
+  <Step title="Check queue">
+    If `waiting_queue` is empty, return immediately
+  </Step>
+  
+  <Step title="Find idle teller">
+    Iterate through tellers dict looking for `status == IDLE`
+  </Step>
+  
+  <Step title="Pop highest-priority customer">
+    Remove first customer from sorted queue
+  </Step>
+  
+  <Step title="Schedule SERVICE_START">
+    Create event at current clock time (immediate)
+  </Step>
+  
+  <Step title="Return after first assignment">
+    Assign only ONE customer per call to avoid race conditions
+  </Step>
+</Steps>
+
+<Note>
+The method assigns only ONE customer per invocation. It's called:
+1. After each ARRIVAL (new customer might find idle teller)
+2. After each SERVICE_END (newly idle teller might serve waiting customer)
+</Note>
+
+## Service Event Flow
+
+### Complete Service Cycle
+
+```python
+# 1. Customer C1 arrives at t=10.0
+handle_arrival():
+    customer = Customer(id="C1", arrival_time=10.0, service_time=5.0)
+    waiting_queue.append(customer)
+    _assign_free_teller()  # Find T-1 is IDLE
+    
+# 2. T-1 assigned to C1 at t=10.0
+handle_service_start(teller_id="T-1", customer=C1):
+    T-1.start_service(C1, current_time=10.0)
+    # T-1.status = BUSY
+    # T-1.current_customer = C1
+    # C1.status = "BEING_SERVED"
+    # C1.service_start_time = 10.0
+    
+    # Schedule end of service
+    end_time = 10.0 + 5.0 = 15.0
+    schedule_event(SimulationEvent(15.0, SERVICE_END, teller_id="T-1"))
+    
+# 3. C1 completes service at t=15.0
+handle_service_end(teller_id="T-1"):
+    served_customer = T-1.end_service()
+    # T-1.status = IDLE
+    # T-1.current_customer = None
+    # T-1.sessions_served = 1
+    # C1.status = "COMPLETED"
+    
+    _assign_free_teller()  # Check if anyone waiting
+```
+
+## Resource Utilization Metrics
+
+### Teller Utilization (ρ)
+
+```
+ρ = (Total busy time) / (Total simulation time)
+
+Per-teller utilization:
+ρ_i = (Time teller i was BUSY) / max_simulation_time
+
+Overall system utilization:
+ρ_system = (Sum of all teller busy times) / (num_tellers * max_simulation_time)
+```
+
+### Calculating Busy Time
+
+```python
+# Conceptual implementation (not in current codebase)
+def calculate_utilization(tellers, max_simulation_time):
+    total_busy_time = 0
+    for teller in tellers.values():
+        # Track each service session
+        for session in teller.service_history:
+            busy_duration = session.end_time - session.start_time
+            total_busy_time += busy_duration
+    
+    system_capacity = len(tellers) * max_simulation_time
+    utilization = total_busy_time / system_capacity
+    return utilization
+```
+
+### Idle Time
+
+```
+Idle time = max_simulation_time - busy_time
+
+Idle percentage = (Idle time / max_simulation_time) * 100%
+```
+
+## Multi-Teller Scenarios
+
+### Example: 3 Tellers, 5 Customers
+
+```
+Time    Tellers                Queue
+----    -------                -----
+0.0     T-1:IDLE               []
+        T-2:IDLE
+        T-3:IDLE
+
+1.0     T-1:BUSY(C1)           []     # C1 assigned to T-1
+        T-2:IDLE
+        T-3:IDLE
+
+2.0     T-1:BUSY(C1)           []     # C2 assigned to T-2
+        T-2:BUSY(C2)
+        T-3:IDLE
+
+3.0     T-1:BUSY(C1)           []     # C3 assigned to T-3
+        T-2:BUSY(C2)
+        T-3:BUSY(C3)
+
+4.0     T-1:BUSY(C1)           [C4]   # C4 arrives, all tellers busy!
+        T-2:BUSY(C2)
+        T-3:BUSY(C3)
+
+5.0     T-1:BUSY(C1)           [C4, C5]  # C5 also waits
+        T-2:BUSY(C2)
+        T-3:BUSY(C3)
+
+6.0     T-1:IDLE               [C5]   # C1 done, C4 assigned to T-1
+        T-2:BUSY(C2)
+        T-3:BUSY(C3)
+        (T-1 immediately serves C4)
+
+7.0     T-1:BUSY(C4)           []     # C2 done, C5 assigned to T-2
+        T-2:IDLE
+        T-3:BUSY(C3)
+        (T-2 immediately serves C5)
+```
+
+## Teller Performance Metrics
+
+### Sessions Served
+
+```python
+# After simulation completes
+for t_id, teller in simulation.tellers.items():
+    print(f"{t_id}: {teller.sessions_served} customers served")
+
+# Output:
+# T-1: 487 customers served
+# T-2: 502 customers served
+# T-3: 495 customers served
+```
+
+<Note>
+Variation in sessions_served is normal due to randomness in service times and assignment order.
+</Note>
+
+### Average Service Rate
+
+```python
+for t_id, teller in simulation.tellers.items():
+    service_rate = teller.sessions_served / simulation.max_simulation_time
+    print(f"{t_id}: {service_rate:.3f} customers/second")
+```
+
+## Resource Constraints
+
+### Maximum Tellers
+
+From `simulation_config.py:11`:
+
+```python
+num_tellers: int = 3  # Default
+```
+
+**Typical configurations:**
+- Small branch: 2-3 tellers
+- Medium branch: 4-6 tellers
+- Large branch: 8-12 tellers
+- Stress testing: 20+ tellers
+
+### Queue Capacity
+
+From `simulation_config.py:28`:
+
+```python
+max_queue_capacity: int = 100  # Maximum waiting queue size
+```
+
+<Warning>
+Currently, `max_queue_capacity` is defined but not enforced in the code. Customers are always added to the queue regardless of capacity.
+
+Future enhancement: Reject customers (balking) when queue is full.
+</Warning>
+
+## Advanced Resource Management (Future)
+
+### Teller Breaks
+
+```python
+# Conceptual implementation
+def schedule_break(teller_id, break_start_time, break_duration):
+    schedule_event(SimulationEvent(
+        time=break_start_time,
+        event_type=EventType.TELLER_BREAK_START,
+        teller_id=teller_id
+    ))
+    schedule_event(SimulationEvent(
+        time=break_start_time + break_duration,
+        event_type=EventType.TELLER_BREAK_END,
+        teller_id=teller_id
+    ))
+```
+
+### Teller Breakdowns
+
+```python
+# Using BROKEN state
+def handle_teller_breakdown(teller_id):
+    teller = self.tellers[teller_id]
+    if teller.current_customer:
+        # Re-queue current customer
+        self.waiting_queue.insert(0, teller.current_customer)
+        teller.current_customer = None
+    teller.status = TellerStatus.BROKEN
+```
+
+### Skill-Based Routing
+
+```python
+# Assign specialized tellers for specific transaction types
+if customer.transaction_type == "LOAN":
+    # Find teller with LOAN skill
+    teller = find_teller_with_skill("LOAN")
+else:
+    # General teller
+    teller = find_idle_teller()
+```
+
+## Common Patterns
+
+<AccordionGroup>
+  <Accordion title="All tellers busy">
+    **Symptom:** Queue grows continuously
+    
+    **Diagnosis:** ρ ≥ 1 (arrival rate exceeds service capacity)
+    
+    **Solution:** Increase `num_tellers` or decrease `arrival_rate`
+  </Accordion>
+  
+  <Accordion title="Tellers frequently idle">
+    **Symptom:** Low `sessions_served`, high idle time
+    
+    **Diagnosis:** ρ ≪ 1 (excess capacity)
+    
+    **Solution:** Reduce `num_tellers` to match demand
+  </Accordion>
+  
+  <Accordion title="Uneven teller workload">
+    **Symptom:** Some tellers have much higher `sessions_served`
+    
+    **Cause:** Random variation in service times (normal with exponential distribution)
+    
+    **Solution:** Use more deterministic service times or larger simulation runs
+  </Accordion>
+  
+  <Accordion title="Customers wait despite idle tellers">
+    **Bug indicator:** `_assign_free_teller()` not called correctly
+    
+    **Check:** Ensure it's called after ARRIVAL and SERVICE_END events
+  </Accordion>
+</AccordionGroup>
+
+## Configuration Best Practices
+
+### Sizing Teller Count
+
+<Steps>
+  <Step title="Calculate minimum tellers">
+    ```python
+    min_tellers = ceil(λ * service_mean)  # For ρ = 1.0
+    ```
+  </Step>
+  
+  <Step title="Add safety margin">
+    ```python
+    target_utilization = 0.75  # 75% busy
+    recommended_tellers = ceil(λ * service_mean / target_utilization)
+    ```
+  </Step>
+  
+  <Step title="Account for variability">
+    With exponential service times, add 10-20% more tellers
+  </Step>
+  
+  <Step title="Validate with simulation">
+    Run simulation and check queue length and wait times
+  </Step>
+</Steps>
+
+### Example Calculation
+
+```python
+# Target: λ = 2.0 customers/second, service_mean = 8.0 seconds
+λ = 2.0
+service_mean = 8.0
+target_utilization = 0.75
+
+required = ceil(λ * service_mean / target_utilization)
+required = ceil(2.0 * 8.0 / 0.75)
+required = ceil(21.33)
+required = 22 tellers
+
+# Verify:
+ρ = 2.0 / (22 * (1/8.0)) = 2.0 / 2.75 = 0.727 ✓ (< 0.75)
+```
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Discrete Event Simulation" icon="clock" href="/concepts/discrete-event-simulation">
+    How SERVICE_START and SERVICE_END events work
+  </Card>
+  
+  <Card title="Priority Queuing" icon="layer-group" href="/concepts/priority-queuing">
+    How customers are selected from the queue
+  </Card>
+  
+  <Card title="Simulation Engine" icon="gear" href="/features/simulation-engine">
+    Full DiscreteEventSimulation implementation
+  </Card>
+  
+  <Card title="Metrics Dashboard" icon="chart-bar" href="/features/metrics-dashboard">
+    Tracking teller utilization and performance
+  </Card>
+</CardGroup>

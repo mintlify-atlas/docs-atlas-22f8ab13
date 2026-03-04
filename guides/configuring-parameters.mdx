@@ -1,0 +1,704 @@
+---
+title: Configuring Parameters
+description: Practical guide to tuning arrival rates, service times, teller counts, and priority distributions
+---
+
+# Configuring Parameters
+
+This guide provides practical advice for tuning simulation parameters to model different banking scenarios and achieve desired system behaviors.
+
+## The Golden Rule: Traffic Intensity
+
+Before configuring anything else, understand this fundamental relationship:
+
+```
+ρ = λ / (c * μ)
+
+Where:
+  ρ (rho) = Traffic intensity (utilization)
+  λ (lambda) = arrival_rate (customers/second)
+  c = num_tellers
+  μ (mu) = service_rate = 1/service_mean (customers/second per teller)
+```
+
+<Warning>
+**Critical Rule:** ρ must be < 1.0 for system stability!
+
+If ρ ≥ 1.0, queues will grow unbounded.
+</Warning>
+
+### Target Utilization Ranges
+
+| ρ Range | System State | Recommendation |
+|---------|--------------|----------------|
+| < 0.3 | Underutilized | Reduce tellers or increase arrival rate |
+| 0.3-0.5 | Light load | Good for off-peak hours |
+| 0.5-0.7 | Moderate load | **Optimal for most scenarios** |
+| 0.7-0.85 | Heavy load | Peak hours, expect longer queues |
+| 0.85-0.95 | Very heavy | Stressful conditions, long waits |
+| > 0.95 | Near saturation | System barely stable |
+| ≥ 1.0 | **UNSTABLE** | Will fail - increase capacity! |
+
+## Tuning Arrival Rate (λ)
+
+### Understanding Arrival Rate
+
+From `simulation_config.py:15`:
+```python
+"arrival_rate": 1.0  # customers per second
+```
+
+**Conversion reference:**
+
+```python
+# Convert between units
+customers_per_second = arrival_rate
+customers_per_minute = arrival_rate * 60
+customers_per_hour = arrival_rate * 3600
+
+# Examples:
+λ = 0.5  →  0.5/s = 30/min = 1800/hour
+λ = 1.0  →  1.0/s = 60/min = 3600/hour
+λ = 2.0  →  2.0/s = 120/min = 7200/hour
+```
+
+### Scenario-Based Configuration
+
+<Tabs>
+  <Tab title="Off-Peak Hours">
+    **Characteristics:**
+    - Few customers
+    - Tellers often idle
+    - Minimal wait times
+    
+    ```python
+    arrival_config = {
+        "arrival_rate": 0.3,  # 18 customers/minute
+        "arrival_dist": "exponential",
+        "priority_weights": [0.1, 0.3, 0.6]
+    }
+    
+    num_tellers = 2
+    service_mean = 8.0
+    
+    # Check: ρ = 0.3 / (2 * 1/8) = 0.3 / 0.25 = 1.2 ❌ UNSTABLE!
+    # Fix: Use 3 tellers
+    # ρ = 0.3 / (3 * 0.125) = 0.8 ✓
+    ```
+  </Tab>
+  
+  <Tab title="Normal Business Hours">
+    **Characteristics:**
+    - Steady customer flow
+    - Moderate queue lengths
+    - Balanced utilization
+    
+    ```python
+    arrival_config = {
+        "arrival_rate": 1.0,  # 60 customers/minute
+        "arrival_dist": "exponential",
+        "priority_weights": [0.15, 0.3, 0.55]
+    }
+    
+    num_tellers = 6
+    service_mean = 5.0
+    
+    # Check: ρ = 1.0 / (6 * 0.2) = 1.0 / 1.2 = 0.83 ✓
+    ```
+  </Tab>
+  
+  <Tab title="Peak Hours (Lunch)">
+    **Characteristics:**
+    - High customer volume
+    - Long queues
+    - All tellers busy
+    
+    ```python
+    arrival_config = {
+        "arrival_rate": 2.5,  # 150 customers/minute
+        "arrival_dist": "exponential",
+        "priority_weights": [0.2, 0.35, 0.45]  # More high-priority
+    }
+    
+    num_tellers = 15
+    service_mean = 6.0
+    
+    # Check: ρ = 2.5 / (15 * 1/6) = 2.5 / 2.5 = 1.0 ⚠️ MARGINAL!
+    # Better: Use 18 tellers
+    # ρ = 2.5 / (18 * 1/6) = 2.5 / 3.0 = 0.83 ✓
+    ```
+  </Tab>
+  
+  <Tab title="Special Event">
+    **Characteristics:**
+    - Extreme volume
+    - Temporary surge
+    - Maximum staffing
+    
+    ```python
+    arrival_config = {
+        "arrival_rate": 5.0,  # 300 customers/minute!
+        "arrival_dist": "exponential",
+        "priority_weights": [0.1, 0.2, 0.7]
+    }
+    
+    num_tellers = 30
+    service_mean = 4.0
+    
+    # Check: ρ = 5.0 / (30 * 0.25) = 5.0 / 7.5 = 0.67 ✓
+    ```
+  </Tab>
+</Tabs>
+
+### Fine-Tuning Tips
+
+<AccordionGroup>
+  <Accordion title="Increasing arrival rate">
+    **When:** Modeling busier periods
+    
+    **Steps:**
+    1. Double arrival_rate
+    2. Recalculate ρ
+    3. If ρ > 0.85, increase num_tellers proportionally
+    4. Run simulation and observe queue length
+    
+    ```python
+    # Before
+    λ = 1.0, c = 3, μ = 0.2 → ρ = 1.0 / 0.6 = 1.67 ❌
+    
+    # After: Increase tellers
+    λ = 1.0, c = 6, μ = 0.2 → ρ = 1.0 / 1.2 = 0.83 ✓
+    ```
+  </Accordion>
+  
+  <Accordion title="Decreasing arrival rate">
+    **When:** Modeling slower periods or testing light load
+    
+    **Effect:** Lower utilization, shorter queues, potential idle tellers
+    
+    ```python
+    # Can reduce tellers when arrival_rate drops
+    λ = 0.5 (was 1.0), c = 6 → ρ = 0.5 / 1.2 = 0.42
+    
+    # Optimize: Use 3 tellers
+    λ = 0.5, c = 3 → ρ = 0.5 / 0.6 = 0.83 ✓
+    ```
+  </Accordion>
+  
+  <Accordion title="Matching real-world data">
+    **If you have actual customer counts:**
+    
+    ```python
+    # Example: Bank served 3,600 customers in 8 hours
+    total_customers = 3600
+    duration_seconds = 8 * 3600
+    
+    observed_arrival_rate = total_customers / duration_seconds
+    # = 3600 / 28800 = 0.125 customers/second
+    
+    # Use this as your arrival_rate
+    arrival_config = {"arrival_rate": 0.125}
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Tuning Service Time
+
+### Understanding Service Mean
+
+From `simulation_config.py:21-22`:
+```python
+"service_mean": 5.0,  # seconds per customer
+"service_dist": "exponential"
+```
+
+**Service rate:**
+```python
+μ = 1 / service_mean
+
+# Examples:
+service_mean = 5.0  → μ = 0.2 customers/second per teller
+service_mean = 10.0 → μ = 0.1 customers/second per teller
+service_mean = 2.0  → μ = 0.5 customers/second per teller
+```
+
+### Transaction Type Scenarios
+
+<CardGroup cols={2}>
+  <Card title="ATM-like (Fast)" icon="bolt">
+    ```python
+    service_config = {
+        "service_mean": 2.0,
+        "service_dist": "exponential"
+    }
+    ```
+    
+    Simple transactions: balance check, quick deposit
+  </Card>
+  
+  <Card title="Standard Teller" icon="money-bill">
+    ```python
+    service_config = {
+        "service_mean": 5.0,
+        "service_dist": "exponential"
+    }
+    ```
+    
+    Typical transactions: deposits, withdrawals, transfers
+  </Card>
+  
+  <Card title="Complex Service" icon="file-invoice">
+    ```python
+    service_config = {
+        "service_mean": 15.0,
+        "service_dist": "normal",
+        "service_stddev": 3.0
+    }
+    ```
+    
+    Account opening, loan inquiries
+  </Card>
+  
+  <Card title="Loan Processing" icon="handshake">
+    ```python
+    service_config = {
+        "service_mean": 180.0,  # 3 minutes
+        "service_dist": "normal",
+        "service_stddev": 30.0
+    }
+    ```
+    
+    Detailed loan applications
+  </Card>
+</CardGroup>
+
+### Choosing Service Distribution
+
+<Tabs>
+  <Tab title="Exponential (Default)">
+    ```python
+    service_config = {
+        "service_mean": 5.0,
+        "service_dist": "exponential"
+    }
+    ```
+    
+    **Characteristics:**
+    - High variability (Coefficient of Variation = 1)
+    - Some customers very quick (0.5s), others very slow (20s)
+    - Memoryless property
+    - Realistic for diverse transaction types
+    
+    **Use when:** Modeling real-world heterogeneous transactions
+  </Tab>
+  
+  <Tab title="Normal">
+    ```python
+    service_config = {
+        "service_mean": 10.0,
+        "service_dist": "normal",
+        "service_stddev": 2.0  # CV = 0.2
+    }
+    ```
+    
+    **Characteristics:**
+    - Moderate variability
+    - Most customers near the mean (10±2 seconds)
+    - More predictable than exponential
+    - Minimum time enforced at 1.0 second
+    
+    **Use when:** Transactions are relatively standardized
+  </Tab>
+  
+  <Tab title="Constant">
+    ```python
+    service_config = {
+        "service_mean": 5.0,
+        "service_dist": "constant"
+    }
+    ```
+    
+    **Characteristics:**
+    - Zero variability
+    - Every customer takes exactly 5.0 seconds
+    - Deterministic
+    - Unrealistic but useful for testing
+    
+    **Use when:** Theoretical analysis or debugging
+  </Tab>
+</Tabs>
+
+### Impact on System Capacity
+
+```python
+# Scenario 1: Fast service
+num_tellers = 3
+service_mean = 3.0
+system_capacity = 3 * (1/3.0) = 1.0 customers/second
+
+# Can handle arrival_rate up to 0.75 (ρ = 0.75)
+
+# Scenario 2: Slow service
+num_tellers = 3
+service_mean = 10.0
+system_capacity = 3 * (1/10.0) = 0.3 customers/second
+
+# Can only handle arrival_rate up to 0.225 (ρ = 0.75)
+```
+
+<Tip>
+If you can't add more tellers, **reducing service_mean** (faster service) increases capacity.
+</Tip>
+
+## Tuning Number of Tellers
+
+### Capacity Planning Formula
+
+```python
+def calculate_required_tellers(arrival_rate, service_mean, target_rho=0.75):
+    """
+    Calculate minimum tellers needed for target utilization.
+    """
+    service_rate = 1.0 / service_mean
+    required = arrival_rate / (target_rho * service_rate)
+    return math.ceil(required)
+
+# Example:
+required_tellers = calculate_required_tellers(
+    arrival_rate=2.0,
+    service_mean=8.0,
+    target_rho=0.75
+)
+# = ceil(2.0 / (0.75 * 0.125))
+# = ceil(21.33)
+# = 22 tellers
+```
+
+### Practical Guidelines
+
+<Steps>
+  <Step title="Start with theoretical minimum">
+    ```python
+    min_tellers = ceil(arrival_rate * service_mean)
+    # This gives ρ = 1.0 (unstable)
+    ```
+  </Step>
+  
+  <Step title="Add safety margin">
+    ```python
+    # For ρ = 0.75 (recommended)
+    recommended_tellers = ceil(min_tellers / 0.75)
+    
+    # For ρ = 0.85 (high utilization)
+    high_util_tellers = ceil(min_tellers / 0.85)
+    ```
+  </Step>
+  
+  <Step title="Account for variability">
+    With exponential service times, add 10-20% more tellers than theoretical
+  </Step>
+  
+  <Step title="Validate with simulation">
+    Run simulation and check:
+    - Queue length stays manageable (< 10)
+    - Wait times acceptable (< 2 minutes)
+    - Utilization in target range
+  </Step>
+</Steps>
+
+### Teller Allocation Scenarios
+
+<CardGroup cols={2}>
+  <Card title="Small Branch">
+    **Characteristics:** 2-4 tellers
+    
+    ```python
+    config = SimulationConfig(
+        num_tellers=3,
+        arrival_config={"arrival_rate": 0.4},
+        service_config={"service_mean": 6.0}
+    )
+    # ρ = 0.4 / (3 * 1/6) = 0.8
+    ```
+  </Card>
+  
+  <Card title="Medium Branch">
+    **Characteristics:** 5-8 tellers
+    
+    ```python
+    config = SimulationConfig(
+        num_tellers=6,
+        arrival_config={"arrival_rate": 1.2},
+        service_config={"service_mean": 5.0}
+    )
+    # ρ = 1.2 / (6 * 0.2) = 1.0 ⚠️
+    # Use 8: ρ = 0.75 ✓
+    ```
+  </Card>
+  
+  <Card title="Large Branch">
+    **Characteristics:** 10-15 tellers
+    
+    ```python
+    config = SimulationConfig(
+        num_tellers=12,
+        arrival_config={"arrival_rate": 2.0},
+        service_config={"service_mean": 6.0}
+    )
+    # ρ = 2.0 / (12 * 1/6) = 1.0 ⚠️
+    # Use 16: ρ = 0.75 ✓
+    ```
+  </Card>
+  
+  <Card title="Mega Branch">
+    **Characteristics:** 20+ tellers
+    
+    ```python
+    config = SimulationConfig(
+        num_tellers=25,
+        arrival_config={"arrival_rate": 3.5},
+        service_config={"service_mean": 8.0}
+    )
+    # ρ = 3.5 / (25 * 0.125) = 1.12 ❌
+    # Use 40: ρ = 0.7 ✓
+    ```
+  </Card>
+</CardGroup>
+
+## Tuning Priority Weights
+
+### Understanding Priority Distribution
+
+From `simulation_config.py:17`:
+```python
+"priority_weights": [0.1, 0.3, 0.6]  # [HIGH, MEDIUM, LOW]
+```
+
+Must sum to 1.0:
+```python
+P(HIGH) + P(MEDIUM) + P(LOW) = 1.0
+0.1 + 0.3 + 0.6 = 1.0 ✓
+```
+
+### Demographic-Based Scenarios
+
+<Tabs>
+  <Tab title="Retirement Community">
+    **Demographics:** High elderly population
+    
+    ```python
+    arrival_config = {
+        "arrival_rate": 0.8,
+        "priority_weights": [0.4, 0.35, 0.25]  # 40% high priority
+    }
+    ```
+    
+    **Effect:**
+    - Most customers get priority service
+    - Low-priority customers may wait significantly
+    - Higher chance of priority-based queue reordering
+  </Tab>
+  
+  <Tab title="Business District">
+    **Demographics:** Professionals, business accounts
+    
+    ```python
+    arrival_config = {
+        "arrival_rate": 1.5,
+        "priority_weights": [0.15, 0.45, 0.4]  # 45% medium priority
+    }
+    ```
+    
+    **Effect:**
+    - Balanced service levels
+    - Moderate differentiation
+    - Most customers in medium tier
+  </Tab>
+  
+  <Tab title="University Area">
+    **Demographics:** Mostly students (regular customers)
+    
+    ```python
+    arrival_config = {
+        "arrival_rate": 1.2,
+        "priority_weights": [0.05, 0.15, 0.8]  # 80% low priority
+    }
+    ```
+    
+    **Effect:**
+    - Minimal priority differentiation
+    - Nearly FIFO behavior
+    - Few queue reorderings
+  </Tab>
+  
+  <Tab title="Equal Priority (Testing)">
+    **Purpose:** Isolate priority effects
+    
+    ```python
+    arrival_config = {
+        "arrival_rate": 1.0,
+        "priority_weights": [0.33, 0.33, 0.34]  # Equal distribution
+    }
+    ```
+    
+    **Effect:**
+    - Roughly equal representation
+    - Average priority differentiation
+    - Good baseline for comparison
+  </Tab>
+</Tabs>
+
+### Impact on Wait Times
+
+```python
+# Example simulation results with different priority_weights
+
+# Scenario A: [0.1, 0.3, 0.6] (Default)
+wait_times = {
+    "high": 0.8,    # seconds
+    "medium": 3.5,
+    "low": 8.2
+}
+
+# Scenario B: [0.4, 0.3, 0.3] (Many high-priority)
+wait_times = {
+    "high": 2.1,    # Increased (more competition)
+    "medium": 6.5,  # Increased (wait for high)
+    "low": 15.3     # Significantly increased!
+}
+
+# Scenario C: [0.05, 0.15, 0.8] (Few high-priority)
+wait_times = {
+    "high": 0.2,    # Very low
+    "medium": 2.8,
+    "low": 5.1      # Improved (less preemption)
+}
+```
+
+<Warning>
+**Starvation risk:** If `priority_weights[0]` (HIGH) is too large and arrival_rate is high, low-priority customers may wait indefinitely!
+</Warning>
+
+## Complete Configuration Examples
+
+### Example 1: Balanced Small Bank
+
+```python
+config = SimulationConfig(
+    num_tellers=4,
+    arrival_config={
+        "arrival_rate": 0.6,              # 36 customers/minute
+        "arrival_dist": "exponential",
+        "priority_weights": [0.1, 0.3, 0.6]
+    },
+    service_config={
+        "service_mean": 6.0,               # 6 seconds average
+        "service_dist": "normal",
+        "service_stddev": 1.5
+    },
+    max_simulation_time=3600.0,           # 1 hour
+    max_queue_capacity=50
+)
+
+# Analysis:
+# ρ = 0.6 / (4 * 1/6) = 0.6 / 0.667 = 0.9 ⚠️ HIGH
+# Recommendation: Use 5 tellers for ρ = 0.72 ✓
+```
+
+### Example 2: Peak Hour Large Bank
+
+```python
+config = SimulationConfig(
+    num_tellers=20,
+    arrival_config={
+        "arrival_rate": 2.5,
+        "arrival_dist": "exponential",
+        "priority_weights": [0.2, 0.35, 0.45]
+    },
+    service_config={
+        "service_mean": 8.0,
+        "service_dist": "exponential"
+    },
+    max_simulation_time=7200.0,           # 2 hours
+    max_queue_capacity=150
+)
+
+# Analysis:
+# ρ = 2.5 / (20 * 0.125) = 2.5 / 2.5 = 1.0 ❌ MARGINAL
+# Recommendation: Use 27 tellers for ρ = 0.74 ✓
+```
+
+### Example 3: Stress Test
+
+```python
+config = SimulationConfig(
+    num_tellers=10,
+    arrival_config={
+        "arrival_rate": 3.0,              # Intentionally high
+        "arrival_dist": "exponential",
+        "priority_weights": [0.15, 0.3, 0.55]
+    },
+    service_config={
+        "service_mean": 10.0,              # Slow service
+        "service_dist": "exponential"
+    },
+    max_simulation_time=1800.0,           # 30 minutes
+    max_queue_capacity=200
+)
+
+# Analysis:
+# ρ = 3.0 / (10 * 0.1) = 3.0 ❌ VERY UNSTABLE
+# Purpose: Observe system breakdown, queue explosion
+```
+
+## Validation Checklist
+
+Before running your simulation:
+
+<Steps>
+  <Step title="Calculate ρ">
+    ```python
+    rho = arrival_rate / (num_tellers * (1/service_mean))
+    ```
+    
+    Ensure ρ < 1.0 (preferably < 0.85)
+  </Step>
+  
+  <Step title="Check priority weights sum">
+    ```python
+    assert sum(priority_weights) == 1.0
+    ```
+  </Step>
+  
+  <Step title="Verify distributions">
+    - `arrival_dist` in ["exponential", "fixed"]
+    - `service_dist` in ["exponential", "normal", "constant"]
+  </Step>
+  
+  <Step title="Sanity check values">
+    - `arrival_rate` > 0
+    - `service_mean` > 0
+    - `num_tellers` ≥ 1
+    - `max_simulation_time` > 0
+  </Step>
+</Steps>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Configuration Reference" icon="book" href="/features/configuration">
+    Complete parameter documentation
+  </Card>
+  
+  <Card title="Running Simulations" icon="play" href="/guides/running-simulations">
+    Step-by-step execution guide
+  </Card>
+  
+  <Card title="Interpreting Metrics" icon="chart-line" href="/guides/interpreting-metrics">
+    Understanding simulation results
+  </Card>
+  
+  <Card title="Advanced Scenarios" icon="rocket" href="/guides/advanced-scenarios">
+    Complex configuration patterns
+  </Card>
+</CardGroup>

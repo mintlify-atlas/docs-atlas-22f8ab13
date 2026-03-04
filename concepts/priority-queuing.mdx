@@ -1,0 +1,340 @@
+---
+title: Priority Queuing
+description: Multi-level priority queue with heap-based implementation and FIFO tie-breaking
+---
+
+# Priority Queuing System
+
+SimulationBank implements a **three-tier priority queue** where customers are served based on priority level first, then arrival time (FIFO) within the same priority.
+
+## Priority Levels
+
+Defined in `backend/src/customer/domain/priority.py:4`:
+
+```python
+class Priority(IntEnum):
+    """
+    Enum: nivel de prioridad del cliente
+     HIGH = 1  (adulto mayor, embarazada)
+     MEDIUM = 2 (cliente preferencial)
+     LOW = 3    (cliente regular)
+    """
+    HIGH = 1
+    MEDIUM = 2
+    LOW = 3
+```
+
+<CardGroup cols={3}>
+  <Card title="Priority 1: HIGH" icon="star">
+    **High-priority customers**
+    - Elderly citizens
+    - Pregnant women
+    - Customers with disabilities
+    - VIP account holders
+    
+    Default weight: 10%
+  </Card>
+  
+  <Card title="Priority 2: MEDIUM" icon="circle">
+    **Medium-priority customers**
+    - Preferred banking customers
+    - Business account holders
+    - Loyalty program members
+    
+    Default weight: 30%
+  </Card>
+  
+  <Card title="Priority 3: LOW" icon="user">
+    **Low-priority customers**
+    - Regular customers
+    - Walk-in visitors
+    - Standard account holders
+    
+    Default weight: 60%
+  </Card>
+</CardGroup>
+
+## Queue Implementation
+
+### Sorting Strategy
+
+From `simulation.py:116-118`:
+
+```python
+# Add customer to waiting queue
+self.waiting_queue.append(customer)
+# Sort by priority (ascending), then arrival time (ascending)
+self.waiting_queue.sort(key=lambda c: (c.priority, c.arrival_time))
+```
+
+**Sorting key:** `(priority, arrival_time)`
+
+1. **Primary sort**: Priority (1 < 2 < 3) - lower numbers = higher priority
+2. **Secondary sort**: Arrival time - earlier arrivals first (FIFO)
+
+### Example Queue Ordering
+
+```python
+waiting_queue = [
+    Customer(id="C1", priority=1, arrival_time=10.5),  # Served 1st
+    Customer(id="C2", priority=1, arrival_time=15.2),  # Served 2nd (same priority, later arrival)
+    Customer(id="C3", priority=2, arrival_time=8.0),   # Served 3rd (lower priority, despite earlier arrival!)
+    Customer(id="C4", priority=2, arrival_time=12.1),  # Served 4th
+    Customer(id="C5", priority=3, arrival_time=5.0),   # Served 5th (lowest priority)
+]
+```
+
+<Note>
+Notice C3 arrived at t=8.0 (earlier than C1 and C2), but is served AFTER them because Priority 2 < Priority 1 in service order.
+</Note>
+
+## Customer Assignment Logic
+
+From `simulation.py:154-168`:
+
+```python
+def _assign_free_teller(self) -> None:
+    """
+    Busca secuencialmente si existe una ventanilla inactiva (IDLE). 
+    En caso de encontrar una y haber gente esperando, extrae al primer cliente 
+    de la fila y programa el evento SERVICE_START para esa ventanilla en el reloj actual.
+    """
+    if not self.waiting_queue:
+        return
+        
+    for t_id, teller in self.tellers.items():
+        if teller.status == "IDLE" or getattr(teller.status, "value", None) == "IDLE":
+            next_customer = self.waiting_queue.pop(0)  # Remove first (highest priority)
+            # Schedule immediate SERVICE_START
+            self.schedule_event(SimulationEvent(self.clock, EventType.SERVICE_START, 
+                                                customer=next_customer, teller_id=t_id))
+            return  # Assign only one customer per call
+```
+
+<Steps>
+  <Step title="Check if queue is empty">
+    If no customers waiting, return immediately
+  </Step>
+  
+  <Step title="Find idle teller">
+    Iterate through tellers looking for status == IDLE
+  </Step>
+  
+  <Step title="Pop highest priority customer">
+    `waiting_queue.pop(0)` removes the first customer (sorted by priority, arrival_time)
+  </Step>
+  
+  <Step title="Schedule SERVICE_START">
+    Create immediate event (at current clock time) to begin service
+  </Step>
+</Steps>
+
+## Priority Weight Distribution
+
+Configured in `simulation_config.py:14-18`:
+
+```python
+arrival_config: Dict[str, Any] = field(default_factory=lambda: {
+    "arrival_rate": 1.0,
+    "arrival_dist": "exponential",
+    "priority_weights": [0.1, 0.3, 0.6]  # [HIGH, MEDIUM, LOW] probabilities
+})
+```
+
+### How Priorities Are Assigned
+
+From `poisson_customer_generator.py:65-78`:
+
+```python
+def get_next_customer_attributes(self) -> Tuple[int, str]:
+    # Choose priority based on configured weights
+    prio = random.choices(
+        [Priority.HIGH.value, Priority.MEDIUM.value, Priority.LOW.value],
+        weights=self.priority_weights,
+        k=1
+    )[0]
+    txn = random.choice(list(TransactionType)).value
+    return prio, txn
+```
+
+**Default distribution:**
+- 10% of customers get Priority 1 (HIGH)
+- 30% of customers get Priority 2 (MEDIUM)
+- 60% of customers get Priority 3 (LOW)
+
+<Tip>
+Adjust `priority_weights` to simulate different customer demographics:
+- `[0.2, 0.3, 0.5]` - More elderly/VIP customers
+- `[0.05, 0.15, 0.8]` - Mostly regular customers
+- `[0.33, 0.33, 0.34]` - Equal distribution
+</Tip>
+
+## Heap-Based Alternative (Future Enhancement)
+
+While SimulationBank currently uses list sorting (`O(n log n)` per insertion), a true heap-based priority queue would offer `O(log n)` insertion:
+
+```python
+import heapq
+
+class PriorityQueue:
+    def __init__(self):
+        self.heap = []
+        
+    def push(self, customer):
+        # Heap ordered by (priority, arrival_time, customer)
+        heapq.heappush(self.heap, (customer.priority, customer.arrival_time, customer))
+        
+    def pop(self):
+        if self.heap:
+            _, _, customer = heapq.heappop(self.heap)
+            return customer
+        return None
+        
+    def __len__(self):
+        return len(self.heap)
+```
+
+<Note>
+The current implementation (list + sort) is simpler and performs well for typical queue sizes (&lt;100 customers). For very large queues, consider the heap-based approach.
+</Note>
+
+## Visualization
+
+The frontend displays priority using color coding:
+
+```jsx
+// frontend/src/queue/components/QueueNode.jsx (conceptual)
+const priorityColors = {
+  1: '#FF4444',  // RED for HIGH priority
+  2: '#FFBB33',  // YELLOW for MEDIUM priority
+  3: '#00C851'   // GREEN for LOW priority
+}
+```
+
+## Queue Metrics
+
+### Wait Time by Priority
+
+Customers with different priorities experience different average wait times:
+
+```python
+wait_time = service_start_time - arrival_time
+```
+
+**Expected behavior:**
+- **High-priority**: Minimal wait, often served immediately
+- **Medium-priority**: Moderate wait, depends on high-priority arrivals
+- **Low-priority**: Longest wait, served only when no higher-priority customers waiting
+
+### Starvation Risk
+
+<Warning>
+If high-priority customers arrive frequently, low-priority customers may experience **starvation** (indefinite waiting).
+</Warning>
+
+**Starvation occurs when:**
+- Arrival rate of high-priority customers > service rate
+- Example: `priority_weights=[0.8, 0.1, 0.1]` with high arrival_rate
+
+**Mitigation strategies:**
+1. Limit maximum wait time for any priority
+2. Gradually promote waiting customers to higher priority
+3. Reserve some tellers for low-priority customers
+
+## Example Scenario
+
+### Setup
+```python
+config = SimulationConfig(
+    num_tellers=2,
+    arrival_config={
+        "arrival_rate": 1.0,
+        "priority_weights": [0.2, 0.3, 0.5]  # 20% HIGH, 30% MEDIUM, 50% LOW
+    },
+    service_config={
+        "service_mean": 10.0  # 10 seconds average service time
+    }
+)
+```
+
+### Timeline
+```
+Time    Event              Queue State (sorted by priority)
+----    -----              -----------
+0.0     C1 arrives (P=3)   [C1(P3, t=0.0)]
+0.0     T-1 starts C1      []
+
+2.0     C2 arrives (P=1)   [C2(P1, t=2.0)]
+2.0     T-2 starts C2      []
+
+5.0     C3 arrives (P=2)   [C3(P2, t=5.0)]  # Both tellers busy
+
+8.0     C4 arrives (P=1)   [C4(P1, t=8.0), C3(P2, t=5.0)]  # C4 before C3!
+
+10.0    C1 completes       [C4(P1, t=8.0), C3(P2, t=5.0)]
+10.0    T-1 starts C4      [C3(P2, t=5.0)]  # C4 served despite arriving later
+
+12.0    C2 completes       [C3(P2, t=5.0)]
+12.0    T-2 starts C3      []  # C3 finally served
+```
+
+**Observations:**
+- C4 (Priority 1, arrived t=8.0) is served **before** C3 (Priority 2, arrived t=5.0)
+- C3 waited 7 seconds (12.0 - 5.0) while C4 waited only 2 seconds (10.0 - 8.0)
+
+## Configuration Guide
+
+### Adjusting Priority Distribution
+
+In your simulation configuration:
+
+```python
+# Favor high-priority customers (elderly-heavy branch)
+arrival_config={
+    "priority_weights": [0.4, 0.35, 0.25]
+}
+
+# Mostly regular customers (downtown branch)
+arrival_config={
+    "priority_weights": [0.05, 0.15, 0.8]
+}
+
+# Equal priority (no preferential treatment)
+arrival_config={
+    "priority_weights": [0.33, 0.33, 0.34]
+}
+```
+
+## Performance Implications
+
+### Time Complexity
+
+| Operation | Current Implementation | Heap-based |
+|-----------|------------------------|------------|
+| Insert customer | O(n log n) - sort entire list | O(log n) |
+| Remove next customer | O(1) - pop first element | O(log n) |
+| Check queue length | O(1) | O(1) |
+
+### Space Complexity
+
+Both implementations: **O(n)** where n = queue length
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Discrete Event Simulation" icon="clock" href="/concepts/discrete-event-simulation">
+    How events trigger customer assignments
+  </Card>
+  
+  <Card title="Customer Entity" icon="user" href="/features/simulation-engine">
+    Customer attributes and lifecycle
+  </Card>
+  
+  <Card title="Queue Visualization" icon="eye" href="/features/queue-visualization">
+    How priorities are displayed in the UI
+  </Card>
+  
+  <Card title="Configuring Parameters" icon="sliders" href="/guides/configuring-parameters">
+    Tuning priority_weights for different scenarios
+  </Card>
+</CardGroup>

@@ -1,0 +1,645 @@
+---
+title: Interpreting Metrics
+description: Understanding wait times, queue lengths, throughput, and saturation to evaluate system performance
+---
+
+# Interpreting Metrics
+
+This guide helps you understand what simulation metrics tell you about system performance and how to use them to identify issues and optimize configurations.
+
+## Key Performance Metrics
+
+SimulationBank tracks four primary metric categories:
+
+<CardGroup cols={2}>
+  <Card title="Wait Time" icon="clock">
+    How long customers wait before service begins
+  </Card>
+  
+  <Card title="Queue Length" icon="users">
+    Number of customers waiting at any time
+  </Card>
+  
+  <Card title="Throughput" icon="gauge">
+    Rate at which customers are served
+  </Card>
+  
+  <Card title="Saturation" icon="percent">
+    Percentage of time tellers are busy
+  </Card>
+</CardGroup>
+
+## Wait Time Analysis
+
+### What is Wait Time?
+
+**Definition:**
+```python
+wait_time = service_start_time - arrival_time
+```
+
+The duration a customer spends in the `waiting_queue` before being assigned to a teller.
+
+### Interpreting Average Wait Time
+
+| Average Wait | Interpretation | System State |
+|--------------|----------------|---------------|
+| < 10 seconds | Excellent | Low load, excess capacity |
+| 10-30 seconds | Good | Balanced system |
+| 30-60 seconds | Acceptable | Moderate load |
+| 60-120 seconds | Poor | High load, consider adding tellers |
+| > 120 seconds | Unacceptable | System struggling, immediate action needed |
+
+### Wait Time Distribution
+
+**Why it matters:**
+
+Average alone doesn't tell the full story. Consider:
+
+```python
+# Scenario A
+avg_wait = 30 seconds
+min_wait = 25 seconds
+max_wait = 35 seconds
+# Interpretation: Consistent, predictable
+
+# Scenario B  
+avg_wait = 30 seconds
+min_wait = 0 seconds
+max_wait = 180 seconds
+# Interpretation: Highly variable, some customers wait 3 minutes!
+```
+
+<Tip>
+Look at **both average and maximum** wait times. High maximum indicates bursty arrivals or service variability.
+</Tip>
+
+### Wait Time by Priority
+
+Expected pattern:
+
+```
+High Priority:    0.5-2 seconds   (served almost immediately)
+Medium Priority:  2-10 seconds    (short wait)
+Low Priority:     10-30 seconds   (longer wait)
+```
+
+**Red flags:**
+
+<Warning>
+- **High priority > 10s**: System overloaded, even priority customers waiting
+- **Low priority > 5 minutes**: Potential starvation, too many high-priority arrivals
+- **All priorities similar**: Priority system not working (check sorting logic)
+</Warning>
+
+### Example Interpretations
+
+<Tabs>
+  <Tab title="Healthy System">
+    ```json
+    {
+      "wait_time": {
+        "average": 8.3,
+        "min": 0.0,
+        "max": 42.1,
+        "by_priority": {
+          "high": 1.2,
+          "medium": 5.8,
+          "low": 15.7
+        }
+      }
+    }
+    ```
+    
+    **Analysis:**
+    - ✅ Average wait < 10s (excellent)
+    - ✅ Clear priority differentiation (1.2s vs 15.7s)
+    - ✅ Max wait < 1 minute (acceptable peak)
+    - **Verdict:** Well-configured system
+  </Tab>
+  
+  <Tab title="Overloaded System">
+    ```json
+    {
+      "wait_time": {
+        "average": 127.5,
+        "min": 15.2,
+        "max": 580.3,
+        "by_priority": {
+          "high": 45.3,
+          "medium": 132.8,
+          "low": 248.6
+        }
+      }
+    }
+    ```
+    
+    **Analysis:**
+    - ❌ Average wait > 2 minutes (poor)
+    - ❌ Even high priority waits 45s
+    - ❌ Max wait ~10 minutes (unacceptable)
+    - ❌ Min wait > 15s (no immediate service)
+    - **Verdict:** Add tellers or reduce arrival rate
+  </Tab>
+  
+  <Tab title="Starvation Detected">
+    ```json
+    {
+      "wait_time": {
+        "average": 35.2,
+        "min": 0.0,
+        "max": 450.8,
+        "by_priority": {
+          "high": 0.8,
+          "medium": 12.5,
+          "low": 125.3
+        }
+      }
+    }
+    ```
+    
+    **Analysis:**
+    - ⚠️ Low priority wait 125s (> 2 minutes)
+    - ✅ High priority excellent (0.8s)
+    - ❌ Large gap between priorities
+    - **Verdict:** Too many high-priority customers, low-priority suffering
+  </Tab>
+</Tabs>
+
+## Queue Length Analysis
+
+### What is Queue Length?
+
+**Definition:**
+```python
+queue_length = len(waiting_queue)
+```
+
+The number of customers waiting for service at any instant.
+
+### Interpreting Queue Length
+
+| Queue Length | Interpretation | Recommended Action |
+|--------------|----------------|--------------------|
+| 0-2 | Underutilized | Consider reducing tellers |
+| 3-8 | Optimal | Good balance |
+| 9-15 | High | Monitor closely, may need more tellers |
+| 16-30 | Very high | Add tellers soon |
+| > 30 | Critical | Immediate intervention needed |
+
+### Queue Length Trends
+
+<Tabs>
+  <Tab title="Stable (Good)">
+    ```
+    Queue Length Over Time:
+    
+    15 |
+    10 |    *  *
+     5 | * *  *  * *
+     0 |*           *
+       +---------------
+       0  10  20  30 min
+    ```
+    
+    **Pattern:** Oscillates around constant value
+    
+    **Interpretation:**
+    - System is stable (ρ < 1)
+    - Arrival and service rates balanced
+    - Normal random variation
+    
+    **Action:** None needed
+  </Tab>
+  
+  <Tab title="Growing (Bad)">
+    ```
+    Queue Length Over Time:
+    
+    50 |              *
+    40 |           *
+    30 |        *
+    20 |     *
+    10 |  *
+     0 |*
+       +---------------
+       0  10  20  30 min
+    ```
+    
+    **Pattern:** Steadily increasing
+    
+    **Interpretation:**
+    - System is unstable (ρ ≥ 1)
+    - Arrival rate > service capacity
+    - Will grow unbounded
+    
+    **Action:** URGENT - Add tellers or reduce arrival_rate
+  </Tab>
+  
+  <Tab title="Decreasing (Underutilized)">
+    ```
+    Queue Length Over Time:
+    
+    10 |*
+     5 | *
+     0 |   * * * * * *
+       +---------------
+       0  10  20  30 min
+    ```
+    
+    **Pattern:** Drops to zero and stays there
+    
+    **Interpretation:**
+    - System has excess capacity
+    - Tellers frequently idle
+    - Resources wasted
+    
+    **Action:** Reduce tellers to match demand
+  </Tab>
+  
+  <Tab title="Bursty (Normal)">
+    ```
+    Queue Length Over Time:
+    
+    20 |    *       *
+    10 |  * * *   * *
+     0 |* *   * *     *
+       +---------------
+       0  10  20  30 min
+    ```
+    
+    **Pattern:** Spikes and valleys
+    
+    **Interpretation:**
+    - Normal with Poisson arrivals
+    - Arrival bursts cause temporary queues
+    - System recovers between bursts
+    
+    **Action:** Ensure avg queue length acceptable
+  </Tab>
+</Tabs>
+
+### Average vs. Maximum Queue Length
+
+```python
+# Example metrics
+queue_metrics = {
+    "current": 7,
+    "average": 5.3,
+    "max": 18
+}
+```
+
+**Interpretation:**
+- **Average (5.3)**: Typical queue size - acceptable
+- **Max (18)**: Worst-case observed - indicates occasional congestion
+- **Current (7)**: Snapshot at simulation end
+
+<Note>
+A high **max** relative to **average** indicates high variability. This is normal with exponential arrivals and service times.
+</Note>
+
+## Throughput Analysis
+
+### What is Throughput?
+
+**Definition:**
+```python
+throughput = total_customers_served / simulation_time
+```
+
+The rate at which customers complete service (customers per second).
+
+### Theoretical Maximum Throughput
+
+```python
+max_throughput = num_tellers * service_rate
+             = num_tellers / service_mean
+
+# Example: 5 tellers, 6-second service
+max_throughput = 5 / 6.0 = 0.833 customers/second
+```
+
+### Interpreting Throughput
+
+| Throughput / Max | Interpretation | System State |
+|------------------|----------------|---------------|
+| < 50% | Very underutilized | Reduce tellers |
+| 50-70% | Moderate utilization | Good balance |
+| 70-85% | High utilization | Efficient operation |
+| 85-95% | Very high utilization | Near capacity |
+| > 95% | Saturated | At theoretical limit |
+
+### Throughput vs. Arrival Rate
+
+<Tabs>
+  <Tab title="Stable System">
+    ```python
+    arrival_rate = 1.0 customers/second
+    throughput = 0.998 customers/second
+    
+    # throughput ≈ arrival_rate
+    ```
+    
+    **Interpretation:**
+    - System keeping up with arrivals
+    - Minimal queue accumulation
+    - Stable operation
+  </Tab>
+  
+  <Tab title="Unstable System">
+    ```python
+    arrival_rate = 2.5 customers/second
+    throughput = 1.2 customers/second
+    
+    # throughput < arrival_rate
+    ```
+    
+    **Interpretation:**
+    - System falling behind
+    - Queue growing at (2.5 - 1.2) = 1.3 customers/second
+    - After 60 seconds, queue has ~78 additional customers!
+    - **CRITICAL ISSUE**
+  </Tab>
+  
+  <Tab title="Underutilized System">
+    ```python
+    arrival_rate = 0.5 customers/second
+    throughput = 0.5 customers/second
+    max_throughput = 2.0 customers/second
+    
+    # throughput / max = 0.5 / 2.0 = 25%
+    ```
+    
+    **Interpretation:**
+    - Using only 25% of capacity
+    - Tellers idle 75% of time
+    - Overstaffed
+  </Tab>
+</Tabs>
+
+### Cumulative Customers Served
+
+```python
+# After 1-hour simulation
+total_served = 3,587 customers
+simulation_time = 3,600 seconds
+
+throughput = 3587 / 3600 = 0.996 customers/second
+           = 59.8 customers/minute
+           = 3,587 customers/hour
+```
+
+Use this to estimate daily/monthly volumes:
+
+```python
+# If this throughput sustained for 8-hour workday
+daily_capacity = 0.996 * 3600 * 8 = 28,697 customers/day
+```
+
+## Saturation (Utilization) Analysis
+
+### What is Saturation?
+
+**Definition:**
+```python
+saturation = total_busy_time / total_available_time
+         = ρ (traffic intensity)
+```
+
+Percentage of time tellers are busy serving customers.
+
+### Interpreting System Saturation
+
+| Saturation | Interpretation | Teller State |
+|------------|----------------|---------------|
+| < 30% | Very low | Mostly idle, overstaffed |
+| 30-50% | Low | Frequent idle periods |
+| 50-70% | **Optimal** | Balanced busy/idle |
+| 70-85% | High | Mostly busy, short idle periods |
+| 85-95% | Very high | Constantly busy, minimal breaks |
+| 95-100% | Saturated | Always busy, queue growing |
+
+### Per-Teller Utilization
+
+```json
+{
+  "saturation": {
+    "system": 0.78,
+    "per_teller": [
+      {"id": "T-1", "utilization": 0.82, "sessions_served": 295},
+      {"id": "T-2", "utilization": 0.79, "sessions_served": 284},
+      {"id": "T-3", "utilization": 0.75, "sessions_served": 270},
+      {"id": "T-4", "utilization": 0.76, "sessions_served": 273}
+    ]
+  }
+}
+```
+
+**Analysis:**
+- **System:** 78% utilization (good)
+- **Variation:** 75-82% (normal random variation)
+- **Sessions:** 270-295 (fairly balanced)
+
+<Warning>
+If one teller has significantly different utilization (e.g., 95% while others are at 70%), there may be a bug in the assignment logic.
+</Warning>
+
+### Idle Time
+
+```python
+idle_percentage = (1 - saturation) * 100
+
+# Example: saturation = 0.78
+idle_percentage = (1 - 0.78) * 100 = 22%
+```
+
+**Interpretation:**
+- Tellers idle 22% of the time
+- This is **healthy** - allows for breaks, unexpected delays
+- Too low idle time (< 5%) means no buffer capacity
+
+## Combining Metrics for Insights
+
+### Pattern 1: High Utilization, Low Wait Times
+
+```python
+saturation = 0.85      # 85% busy
+avg_wait_time = 5.2    # 5 seconds
+queue_length_avg = 2.3 # ~2 customers
+```
+
+**Interpretation:**
+- **Efficient system**: High throughput without excessive waits
+- Tellers kept busy but customers served quickly
+- **Verdict:** Well-optimized configuration
+
+### Pattern 2: Low Utilization, High Wait Times
+
+```python
+saturation = 0.35      # Only 35% busy
+avg_wait_time = 45.3   # 45 seconds!
+queue_length_avg = 8.5 # ~9 customers
+```
+
+**Interpretation:**
+- **Paradox!** Tellers idle yet customers waiting
+- **Likely cause:** Bug in `_assign_free_teller()` logic
+- Tellers not being assigned to waiting customers
+- **Action:** Debug simulation code
+
+### Pattern 3: High Saturation, Growing Queue
+
+```python
+saturation = 0.98      # 98% busy
+avg_wait_time = 180    # 3 minutes
+queue_length = growing # Increasing over time
+throughput < arrival_rate
+```
+
+**Interpretation:**
+- **Unstable system**: ρ ≥ 1
+- Tellers maxed out but can't keep up
+- Queue will grow indefinitely
+- **Action:** URGENT - Add tellers
+
+### Pattern 4: Balanced System
+
+```python
+saturation = 0.72
+avg_wait_time = 8.5
+queue_length_avg = 4.2
+queue_length: stable oscillation
+throughput ≈ arrival_rate
+```
+
+**Interpretation:**
+- **Ideal configuration**
+- All metrics in healthy ranges
+- System stable and efficient
+- **Action:** None needed, monitor over time
+
+## Using Metrics to Optimize
+
+### Scenario: Reduce Costs (Minimize Tellers)
+
+**Current state:**
+```python
+num_tellers = 8
+saturation = 0.45      # Only 45% busy
+avg_wait_time = 3.2    # Very low
+```
+
+**Analysis:**
+- Overstaffed - wasting resources
+- Can reduce tellers without hurting service
+
+**Action:**
+```python
+# Try with 6 tellers
+expected_saturation = 0.45 * (8/6) = 0.60  # Still acceptable
+
+# Run simulation to verify
+# If avg_wait_time stays < 15s, accept change
+```
+
+### Scenario: Improve Service (Reduce Wait Times)
+
+**Current state:**
+```python
+num_tellers = 5
+saturation = 0.88
+avg_wait_time = 52.3   # Unacceptable
+```
+
+**Analysis:**
+- High utilization causing long waits
+- Need more capacity
+
+**Action:**
+```python
+# Add 2 tellers (5 → 7)
+expected_saturation = 0.88 * (5/7) = 0.63  # Better
+
+# Expected wait time reduction:
+# Rule of thumb: wait_time inversely proportional to (1 - ρ)
+# Old: 1 - 0.88 = 0.12
+# New: 1 - 0.63 = 0.37
+# Improvement factor: 0.37 / 0.12 ≈ 3x
+# Expected new wait: 52.3 / 3 ≈ 17 seconds
+```
+
+### Scenario: Handle Peak Hours
+
+**Off-peak state:**
+```python
+arrival_rate = 0.8
+num_tellers = 4
+saturation = 0.67
+```
+
+**Peak projection:**
+```python
+peak_arrival_rate = 2.5  # 3x increase
+
+# If we keep 4 tellers:
+expected_saturation = 0.67 * (2.5 / 0.8) = 2.09  # UNSTABLE!
+
+# Required tellers:
+required = 4 * 2.09 / 0.75 = 11.1 → 12 tellers
+```
+
+## Metric Benchmarks
+
+### Excellent Performance
+
+```json
+{
+  "wait_time": {"average": 5.0, "max": 25.0},
+  "queue_length": {"average": 2.5, "max": 8},
+  "throughput": 0.85,  // 85% of max
+  "saturation": 0.68   // 68% utilization
+}
+```
+
+### Acceptable Performance
+
+```json
+{
+  "wait_time": {"average": 15.0, "max": 60.0},
+  "queue_length": {"average": 6.0, "max": 18},
+  "throughput": 0.75,
+  "saturation": 0.80
+}
+```
+
+### Poor Performance
+
+```json
+{
+  "wait_time": {"average": 90.0, "max": 300.0},
+  "queue_length": {"average": 20.0, "max": 65},
+  "throughput": 0.50,
+  "saturation": 0.95
+}
+```
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Metrics Dashboard" icon="chart-bar" href="/features/metrics-dashboard">
+    Technical details of metric calculations
+  </Card>
+  
+  <Card title="Configuring Parameters" icon="sliders" href="/guides/configuring-parameters">
+    How to adjust config based on metrics
+  </Card>
+  
+  <Card title="Advanced Scenarios" icon="rocket" href="/guides/advanced-scenarios">
+    Complex optimization examples
+  </Card>
+  
+  <Card title="Running Simulations" icon="play" href="/guides/running-simulations">
+    Collecting and exporting metrics
+  </Card>
+</CardGroup>

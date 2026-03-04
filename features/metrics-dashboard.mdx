@@ -1,0 +1,609 @@
+---
+title: Metrics Dashboard
+description: Real-time analytics including wait times, throughput, saturation, and queue length metrics
+---
+
+# Metrics Dashboard
+
+The Metrics Dashboard provides comprehensive real-time analytics for understanding simulation performance, system efficiency, and customer experience.
+
+## Overview
+
+The dashboard displays four primary metric categories:
+
+<CardGroup cols={2}>
+  <Card title="Wait Time Analysis" icon="clock">
+    Average and distribution of customer waiting times
+  </Card>
+  
+  <Card title="Queue Length" icon="chart-line">
+    Number of customers waiting over time
+  </Card>
+  
+  <Card title="Throughput" icon="gauge-high">
+    Customers served per time unit
+  </Card>
+  
+  <Card title="Saturation" icon="percent">
+    Teller utilization and system capacity usage
+  </Card>
+</CardGroup>
+
+## Dashboard Architecture
+
+```
+┌────────────────────────────────────────────────────────┐
+│                  MetricsDashboard                         │
+│                                                            │
+│  ┌────────────────────────┐  ┌────────────────────────┐  │
+│  │   WaitTimeChart      │  │  QueueLengthChart   │  │
+│  │                        │  │                        │  │
+│  │  - Avg wait time     │  │  - Current length   │  │
+│  │  - Min/max           │  │  - Max observed     │  │
+│  │  - By priority       │  │  - Time series      │  │
+│  └────────────────────────┘  └────────────────────────┘  │
+│                                                            │
+│  ┌────────────────────────┐  ┌────────────────────────┐  │
+│  │  ThroughputChart    │  │  SaturationReport   │  │
+│  │                        │  │                        │  │
+│  │  - Customers/sec     │  │  - Per-teller util  │  │
+│  │  - Cumulative served │  │  - System util      │  │
+│  │  - Service rate      │  │  - Idle percentage  │  │
+│  └────────────────────────┘  └────────────────────────┘  │
+│                                                            │
+│  Data: useMetrics() hook → /api/metrics/current          │
+└────────────────────────────────────────────────────────┘
+```
+
+## Wait Time Metrics
+
+### Definition
+
+**Wait time** = Time from customer arrival until service starts
+
+```python
+wait_time = service_start_time - arrival_time
+```
+
+From `customer.py:22`:
+```python
+service_start_time: Optional[float] = None  # Set when service begins
+```
+
+### Calculation
+
+```python
+# Conceptual metrics calculation
+def calculate_wait_times(completed_customers):
+    wait_times = []
+    for customer in completed_customers:
+        if customer.service_start_time is not None:
+            wait = customer.service_start_time - customer.arrival_time
+            wait_times.append(wait)
+    
+    return {
+        "average": sum(wait_times) / len(wait_times) if wait_times else 0,
+        "min": min(wait_times) if wait_times else 0,
+        "max": max(wait_times) if wait_times else 0,
+        "median": sorted(wait_times)[len(wait_times) // 2] if wait_times else 0
+    }
+```
+
+### Wait Time by Priority
+
+```python
+def calculate_wait_by_priority(completed_customers):
+    by_priority = {1: [], 2: [], 3: []}
+    
+    for customer in completed_customers:
+        if customer.service_start_time is not None:
+            wait = customer.service_start_time - customer.arrival_time
+            by_priority[customer.priority].append(wait)
+    
+    return {
+        "high": sum(by_priority[1]) / len(by_priority[1]) if by_priority[1] else 0,
+        "medium": sum(by_priority[2]) / len(by_priority[2]) if by_priority[2] else 0,
+        "low": sum(by_priority[3]) / len(by_priority[3]) if by_priority[3] else 0
+    }
+```
+
+### WaitTimeChart Component
+
+```jsx
+// Conceptual structure
+const WaitTimeChart = () => {
+  const metrics = useMetrics();
+  
+  return (
+    <Card title="Wait Time Analysis">
+      <div className="stat-grid">
+        <Stat label="Average" value={metrics.wait_time.average.toFixed(2)} unit="s" />
+        <Stat label="Minimum" value={metrics.wait_time.min.toFixed(2)} unit="s" />
+        <Stat label="Maximum" value={metrics.wait_time.max.toFixed(2)} unit="s" />
+      </div>
+      
+      <h3>By Priority</h3>
+      <BarChart data={[
+        { priority: 'High', value: metrics.wait_by_priority.high },
+        { priority: 'Medium', value: metrics.wait_by_priority.medium },
+        { priority: 'Low', value: metrics.wait_by_priority.low }
+      ]} />
+    </Card>
+  );
+};
+```
+
+**Expected pattern:**
+- **High priority**: Near-zero wait (often served immediately)
+- **Medium priority**: Moderate wait
+- **Low priority**: Longest wait (especially during high load)
+
+## Queue Length Metrics
+
+### Definition
+
+**Queue length** = Number of customers in `waiting_queue` at any time
+
+```python
+current_queue_length = len(simulation.waiting_queue)
+```
+
+### Time Series Tracking
+
+```python
+# Track queue length over time
+class QueueLengthTracker:
+    def __init__(self):
+        self.history = []  # List of (time, length) tuples
+        self.max_length = 0
+    
+    def record(self, current_time, queue_length):
+        self.history.append((current_time, queue_length))
+        self.max_length = max(self.max_length, queue_length)
+    
+    def get_average(self):
+        if not self.history:
+            return 0
+        total_area = 0
+        for i in range(len(self.history) - 1):
+            time_interval = self.history[i+1][0] - self.history[i][0]
+            avg_length = (self.history[i][1] + self.history[i+1][1]) / 2
+            total_area += time_interval * avg_length
+        
+        total_time = self.history[-1][0] - self.history[0][0]
+        return total_area / total_time if total_time > 0 else 0
+```
+
+### QueueLengthChart Component
+
+```jsx
+const QueueLengthChart = () => {
+  const metrics = useMetrics();
+  
+  return (
+    <Card title="Queue Length Over Time">
+      <div className="stat-grid">
+        <Stat label="Current" value={metrics.queue_length.current} />
+        <Stat label="Average" value={metrics.queue_length.average.toFixed(1)} />
+        <Stat label="Maximum" value={metrics.queue_length.max} />
+      </div>
+      
+      <LineChart 
+        data={metrics.queue_length.history}
+        xAxis="time"
+        yAxis="length"
+      />
+    </Card>
+  );
+};
+```
+
+**Indicators:**
+- **Stable system**: Queue length oscillates around a constant
+- **Unstable system**: Queue length grows unbounded (ρ ≥ 1)
+- **Underutilized**: Queue frequently zero
+
+## Throughput Metrics
+
+### Definition
+
+**Throughput** = Number of customers served per unit time
+
+```python
+throughput = total_customers_served / simulation_time
+```
+
+### Instantaneous vs. Cumulative
+
+<Tabs>
+  <Tab title="Instantaneous Throughput">
+    Customers served in recent time window:
+    
+    ```python
+    def calculate_instantaneous_throughput(completed_customers, window=60.0):
+        current_time = simulation.clock
+        recent = [c for c in completed_customers 
+                  if c.service_end_time >= current_time - window]
+        return len(recent) / window
+    ```
+  </Tab>
+  
+  <Tab title="Cumulative Throughput">
+    Total customers served since start:
+    
+    ```python
+    def calculate_cumulative_throughput(completed_customers):
+        if not completed_customers:
+            return 0
+        total_time = simulation.clock
+        return len(completed_customers) / total_time
+    ```
+  </Tab>
+</Tabs>
+
+### Theoretical Maximum Throughput
+
+```python
+# Maximum possible throughput (all tellers always busy)
+max_throughput = num_tellers / service_mean
+
+# Example: 3 tellers, 5-second avg service
+max_throughput = 3 / 5.0 = 0.6 customers/second
+```
+
+### ThroughputChart Component
+
+```jsx
+const ThroughputChart = () => {
+  const metrics = useMetrics();
+  const config = useSimulationConfig();
+  
+  const maxThroughput = config.num_tellers / config.service_mean;
+  
+  return (
+    <Card title="System Throughput">
+      <div className="stat-grid">
+        <Stat 
+          label="Current" 
+          value={metrics.throughput.current.toFixed(3)} 
+          unit="customers/s" 
+        />
+        <Stat 
+          label="Average" 
+          value={metrics.throughput.average.toFixed(3)} 
+          unit="customers/s" 
+        />
+        <Stat 
+          label="Total Served" 
+          value={metrics.total_served} 
+        />
+      </div>
+      
+      <ProgressBar 
+        current={metrics.throughput.current}
+        max={maxThroughput}
+        label="% of theoretical max"
+      />
+      
+      <LineChart 
+        data={metrics.throughput.history}
+        xAxis="time"
+        yAxis="throughput"
+      />
+    </Card>
+  );
+};
+```
+
+## Saturation Metrics
+
+### Definition
+
+**Saturation** (or **utilization**) = Percentage of time resources are busy
+
+```python
+ρ = (Total busy time) / (Total available time)
+```
+
+### Per-Teller Utilization
+
+From `teller.py:19`:
+```python
+sessions_served: int = 0  # Number of customers served
+```
+
+```python
+def calculate_teller_utilization(teller, simulation_time):
+    # Estimate busy time from sessions served and average service time
+    estimated_busy_time = teller.sessions_served * average_service_time
+    utilization = estimated_busy_time / simulation_time
+    return min(utilization, 1.0)  # Cap at 100%
+```
+
+### System-Wide Utilization
+
+```python
+def calculate_system_utilization(tellers, simulation_time):
+    total_capacity = len(tellers) * simulation_time
+    total_busy_time = sum(
+        teller.sessions_served * average_service_time 
+        for teller in tellers.values()
+    )
+    return total_busy_time / total_capacity
+```
+
+### SaturationReport Component
+
+```jsx
+const SaturationReport = () => {
+  const metrics = useMetrics();
+  
+  return (
+    <Card title="Teller Utilization">
+      <div className="system-util">
+        <CircularProgress 
+          percentage={metrics.saturation.system * 100}
+          label="System Utilization"
+        />
+      </div>
+      
+      <h3>Per-Teller Breakdown</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Teller</th>
+            <th>Utilization</th>
+            <th>Served</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {metrics.saturation.per_teller.map(teller => (
+            <tr key={teller.id}>
+              <td>{teller.id}</td>
+              <td>
+                <ProgressBar percentage={teller.utilization * 100} />
+                {(teller.utilization * 100).toFixed(1)}%
+              </td>
+              <td>{teller.sessions_served}</td>
+              <td>
+                <Badge color={teller.status === 'BUSY' ? 'red' : 'green'}>
+                  {teller.status}
+                </Badge>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      <div className="idle-time">
+        <Stat 
+          label="Average Idle Time" 
+          value={((1 - metrics.saturation.system) * 100).toFixed(1)}
+          unit="%"
+        />
+      </div>
+    </Card>
+  );
+};
+```
+
+### Utilization Interpretation
+
+| Utilization | Interpretation | Action |
+|-------------|----------------|--------|
+| < 50% | Underutilized | Consider reducing tellers |
+| 50-70% | Healthy | Optimal balance |
+| 70-85% | High | Monitor closely |
+| 85-95% | Very high | Long queues likely |
+| > 95% | Saturated | Add more tellers |
+| 100% | Maxed out | System unstable |
+
+## API Endpoints
+
+### Fetching Metrics
+
+```python
+# Backend endpoint (conceptual)
+@app.route('/api/metrics/current', methods=['GET'])
+def get_current_metrics():
+    sim = current_simulation
+    
+    # Calculate wait times for completed customers
+    completed = [c for c in all_customers if c.status == "COMPLETED"]
+    wait_times = calculate_wait_times(completed)
+    wait_by_priority = calculate_wait_by_priority(completed)
+    
+    # Queue length
+    queue_length = {
+        "current": len(sim.waiting_queue),
+        "average": queue_tracker.get_average(),
+        "max": queue_tracker.max_length,
+        "history": queue_tracker.history[-50:]  # Last 50 data points
+    }
+    
+    # Throughput
+    throughput = {
+        "current": calculate_instantaneous_throughput(completed),
+        "average": len(completed) / sim.clock if sim.clock > 0 else 0,
+        "history": throughput_tracker.history[-50:]
+    }
+    
+    # Saturation
+    saturation = {
+        "system": calculate_system_utilization(sim.tellers, sim.clock),
+        "per_teller": [
+            {
+                "id": t_id,
+                "utilization": calculate_teller_utilization(teller, sim.clock),
+                "sessions_served": teller.sessions_served,
+                "status": teller.status.value
+            }
+            for t_id, teller in sim.tellers.items()
+        ]
+    }
+    
+    return jsonify({
+        "clock": sim.clock,
+        "status": sim.status.value,
+        "wait_time": wait_times,
+        "wait_by_priority": wait_by_priority,
+        "queue_length": queue_length,
+        "throughput": throughput,
+        "saturation": saturation,
+        "total_served": len(completed)
+    })
+```
+
+## Real-Time Updates
+
+### Polling Strategy
+
+```javascript
+// frontend/src/metrics/hooks/useMetrics.js (conceptual)
+import { useState, useEffect } from 'react';
+
+const useMetrics = () => {
+  const [metrics, setMetrics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/metrics/current');
+        const data = await response.json();
+        setMetrics(data);
+        setLoading(false);
+      } catch (error) {
+        console.error('Failed to fetch metrics:', error);
+      }
+    };
+    
+    // Initial fetch
+    fetchMetrics();
+    
+    // Poll every 1 second
+    const interval = setInterval(fetchMetrics, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  return { metrics, loading };
+};
+
+export default useMetrics;
+```
+
+## Performance Indicators
+
+### Key Performance Indicators (KPIs)
+
+<CardGroup cols={2}>
+  <Card title="Average Wait Time" icon="clock">
+    **Target:** < 2 minutes (120 seconds)
+    
+    **Critical:** > 5 minutes (300 seconds)
+  </Card>
+  
+  <Card title="Queue Length" icon="list">
+    **Target:** < 5 customers
+    
+    **Critical:** > 20 customers
+  </Card>
+  
+  <Card title="Throughput" icon="gauge">
+    **Target:** > 80% of theoretical max
+    
+    **Critical:** < 50% of theoretical max
+  </Card>
+  
+  <Card title="Saturation" icon="percent">
+    **Target:** 60-80%
+    
+    **Critical:** > 95% or < 30%
+  </Card>
+</CardGroup>
+
+### Alert Thresholds
+
+```javascript
+const ALERT_THRESHOLDS = {
+  wait_time: {
+    warning: 120,   // 2 minutes
+    critical: 300   // 5 minutes
+  },
+  queue_length: {
+    warning: 10,
+    critical: 20
+  },
+  saturation: {
+    warning_high: 0.85,
+    critical_high: 0.95,
+    warning_low: 0.30
+  }
+};
+
+const checkAlerts = (metrics) => {
+  const alerts = [];
+  
+  if (metrics.wait_time.average > ALERT_THRESHOLDS.wait_time.critical) {
+    alerts.push({ level: 'critical', message: 'Average wait time exceeds 5 minutes' });
+  }
+  
+  if (metrics.queue_length.current > ALERT_THRESHOLDS.queue_length.critical) {
+    alerts.push({ level: 'critical', message: 'Queue has more than 20 customers' });
+  }
+  
+  if (metrics.saturation.system > ALERT_THRESHOLDS.saturation.critical_high) {
+    alerts.push({ level: 'critical', message: 'System saturation above 95%' });
+  }
+  
+  return alerts;
+};
+```
+
+## Export and Reporting
+
+### CSV Export
+
+```javascript
+const exportMetricsToCSV = (metrics) => {
+  const csv = [
+    ['Metric', 'Value', 'Unit'],
+    ['Average Wait Time', metrics.wait_time.average, 'seconds'],
+    ['Max Wait Time', metrics.wait_time.max, 'seconds'],
+    ['Current Queue Length', metrics.queue_length.current, 'customers'],
+    ['Max Queue Length', metrics.queue_length.max, 'customers'],
+    ['Average Throughput', metrics.throughput.average, 'customers/second'],
+    ['System Utilization', metrics.saturation.system * 100, '%'],
+    ['Total Served', metrics.total_served, 'customers']
+  ].map(row => row.join(',')).join('\n');
+  
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `simulation-metrics-${Date.now()}.csv`;
+  a.click();
+};
+```
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Interpreting Metrics" icon="chart-line" href="/guides/interpreting-metrics">
+    Detailed guide to understanding metric patterns
+  </Card>
+  
+  <Card title="Queue Visualization" icon="eye" href="/features/queue-visualization">
+    Visual representation of queue dynamics
+  </Card>
+  
+  <Card title="Simulation Engine" icon="gear" href="/features/simulation-engine">
+    How metrics are calculated from simulation state
+  </Card>
+  
+  <Card title="Advanced Scenarios" icon="rocket" href="/guides/advanced-scenarios">
+    Using metrics to optimize configurations
+  </Card>
+</CardGroup>

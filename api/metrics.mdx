@@ -1,0 +1,211 @@
+---
+title: Metrics Endpoints
+description: Retrieve simulation statistics and performance metrics
+---
+
+## Get Simulation Report
+
+<api-endpoint method="GET" path="/api/metrics/report" />
+
+Generates a comprehensive statistical report of the completed or current simulation, including wait times, throughput, utilization, and queue statistics.
+
+### Response
+
+<ResponseField name="status" type="string">
+  Status of the response: `success` or `error`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="simulation_id" type="string">
+      Unique identifier of the simulation.
+    </ResponseField>
+    
+    <ResponseField name="total_simulation_time" type="float">
+      Total elapsed simulation time in seconds.
+    </ResponseField>
+    
+    <ResponseField name="customers_arrived" type="integer">
+      Total number of customers who arrived at the bank.
+    </ResponseField>
+    
+    <ResponseField name="customers_served" type="integer">
+      Total number of customers who completed service.
+    </ResponseField>
+    
+    <ResponseField name="customers_rejected" type="integer">
+      Number of customers rejected due to queue capacity limits.
+    </ResponseField>
+    
+    <ResponseField name="average_wait_time" type="float">
+      Mean wait time across all customers (in seconds).
+    </ResponseField>
+    
+    <ResponseField name="wait_time_by_priority" type="object">
+      Average wait times broken down by priority level.
+      <Expandable title="properties">
+        <ResponseField name="1" type="float">
+          Average wait time for HIGH priority customers.
+        </ResponseField>
+        <ResponseField name="2" type="float">
+          Average wait time for MEDIUM priority customers.
+        </ResponseField>
+        <ResponseField name="3" type="float">
+          Average wait time for LOW priority customers.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="average_service_time" type="float">
+      Mean service time across all served customers (in seconds).
+    </ResponseField>
+    
+    <ResponseField name="average_total_time" type="float">
+      Mean total time in system (wait + service) in seconds.
+    </ResponseField>
+    
+    <ResponseField name="max_queue_length" type="integer">
+      Peak queue length observed during simulation.
+    </ResponseField>
+    
+    <ResponseField name="average_queue_length" type="float">
+      Time-weighted average queue length.
+    </ResponseField>
+    
+    <ResponseField name="teller_utilization" type="object">
+      Utilization rate for each teller (percentage of time busy).
+    </ResponseField>
+    
+    <ResponseField name="overall_utilization" type="float">
+      Average utilization across all tellers (0.0 to 1.0).
+    </ResponseField>
+    
+    <ResponseField name="throughput" type="float">
+      Customers served per time unit (customers/second).
+    </ResponseField>
+    
+    <ResponseField name="starvation_incidents" type="integer">
+      Number of times the system was idle with no customers.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl http://localhost:5000/api/metrics/report
+```
+
+### Example Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "simulation_id": "a3f2c1b5",
+    "total_simulation_time": 14400.0,
+    "customers_arrived": 2156,
+    "customers_served": 2148,
+    "customers_rejected": 8,
+    "average_wait_time": 45.3,
+    "wait_time_by_priority": {
+      "1": 12.5,
+      "2": 38.2,
+      "3": 67.8
+    },
+    "average_service_time": 3.98,
+    "average_total_time": 49.28,
+    "max_queue_length": 23,
+    "average_queue_length": 8.4,
+    "teller_utilization": {
+      "T-1": 0.89,
+      "T-2": 0.87,
+      "T-3": 0.91
+    },
+    "overall_utilization": 0.89,
+    "throughput": 0.149,
+    "starvation_incidents": 3
+  }
+}
+```
+
+<Note>
+  The report can be requested at any time, even while the simulation is running. Final metrics are only accurate after the simulation has completed.
+</Note>
+
+---
+
+## Get Live Metrics
+
+<api-endpoint method="GET" path="/api/metrics/live" />
+
+Retrieves real-time metrics for a currently running simulation, useful for monitoring and visualization.
+
+### Response
+
+<ResponseField name="status" type="string">
+  Status of the response: `success` or `error`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="current_time" type="float">
+      Current simulation clock time in seconds.
+    </ResponseField>
+    
+    <ResponseField name="current_queue_length" type="integer">
+      Number of customers currently waiting.
+    </ResponseField>
+    
+    <ResponseField name="active_tellers" type="integer">
+      Number of tellers currently serving customers.
+    </ResponseField>
+    
+    <ResponseField name="idle_tellers" type="integer">
+      Number of tellers currently available.
+    </ResponseField>
+    
+    <ResponseField name="customers_served_so_far" type="integer">
+      Total customers served up to this point.
+    </ResponseField>
+    
+    <ResponseField name="customers_in_system" type="integer">
+      Total customers currently in the system (waiting + being served).
+    </ResponseField>
+    
+    <ResponseField name="recent_throughput" type="float">
+      Customers served in the last time window (customers/minute).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl http://localhost:5000/api/metrics/live
+```
+
+### Example Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "current_time": 3247.82,
+    "current_queue_length": 7,
+    "active_tellers": 2,
+    "idle_tellers": 1,
+    "customers_served_so_far": 485,
+    "customers_in_system": 9,
+    "recent_throughput": 8.94
+  }
+}
+```
+
+<Warning>
+  This endpoint only works when a simulation is actively running. It will return an error if called when no simulation is active.
+</Warning>
+
+## Metrics Data Structures
+
+For detailed information about the metrics data structures returned by these endpoints, see the [Metrics Model](/api/models/metrics) documentation.

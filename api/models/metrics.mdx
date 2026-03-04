@@ -1,0 +1,345 @@
+---
+title: Metrics
+description: Simulation metrics and statistical data structures
+---
+
+## Overview
+
+The SimulationBank API provides comprehensive metrics for analyzing simulation performance, including wait times, throughput, utilization, and queue statistics. Metrics are collected in real-time during simulation and can be retrieved via the `/api/metrics` endpoints.
+
+## Simulation Report
+
+The primary metrics structure returned by [GET /api/metrics/report](/api/metrics#get-simulation-report).
+
+### Schema
+
+<ResponseField name="simulation_id" type="string">
+  Unique identifier for the simulation run.
+</ResponseField>
+
+<ResponseField name="total_simulation_time" type="float">
+  Total elapsed simulation time in seconds.
+  
+  **Example:** `14400.0` (4 hours)
+</ResponseField>
+
+<ResponseField name="customers_arrived" type="integer">
+  Total number of customers who arrived at the bank during the simulation.
+  
+  **Note:** Includes both served and rejected customers.
+</ResponseField>
+
+<ResponseField name="customers_served" type="integer">
+  Total number of customers who successfully completed service.
+  
+  **Formula:** `customers_arrived - customers_rejected`
+</ResponseField>
+
+<ResponseField name="customers_rejected" type="integer">
+  Number of customers rejected due to queue being at maximum capacity.
+  
+  **Note:** This metric indicates lost business and capacity issues.
+</ResponseField>
+
+### Wait Time Metrics
+
+<ResponseField name="average_wait_time" type="float">
+  Mean wait time across all customers (in seconds).
+  
+  **Calculation:** Average of `(service_start_time - arrival_time)` for all served customers.
+  
+  **Example:** `45.3` seconds
+</ResponseField>
+
+<ResponseField name="wait_time_by_priority" type="object">
+  Average wait times broken down by priority level.
+  
+  <Expandable title="properties">
+    <ResponseField name="1" type="float">
+      Average wait time for HIGH priority customers.
+      
+      **Example:** `12.5` seconds
+    </ResponseField>
+    
+    <ResponseField name="2" type="float">
+      Average wait time for MEDIUM priority customers.
+      
+      **Example:** `38.2` seconds
+    </ResponseField>
+    
+    <ResponseField name="3" type="float">
+      Average wait time for LOW priority customers.
+      
+      **Example:** `67.8` seconds
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="max_wait_time" type="float">
+  Maximum wait time experienced by any customer.
+  
+  **Example:** `450.2` seconds
+</ResponseField>
+
+<ResponseField name="min_wait_time" type="float">
+  Minimum wait time experienced by any customer.
+  
+  **Example:** `0.0` seconds (served immediately)
+</ResponseField>
+
+### Service Time Metrics
+
+<ResponseField name="average_service_time" type="float">
+  Mean service time across all served customers (in seconds).
+  
+  **Example:** `3.98` seconds
+</ResponseField>
+
+<ResponseField name="average_total_time" type="float">
+  Mean total time in system (wait + service) in seconds.
+  
+  **Formula:** `average_wait_time + average_service_time`
+  
+  **Example:** `49.28` seconds
+</ResponseField>
+
+### Queue Metrics
+
+<ResponseField name="max_queue_length" type="integer">
+  Peak queue length observed during the simulation.
+  
+  **Example:** `23` customers
+  
+  **Note:** If this equals `max_queue_capacity`, customers were likely rejected.
+</ResponseField>
+
+<ResponseField name="average_queue_length" type="float">
+  Time-weighted average queue length throughout the simulation.
+  
+  **Calculation:** Integral of queue length over time divided by total time.
+  
+  **Example:** `8.4` customers
+</ResponseField>
+
+### Utilization Metrics
+
+<ResponseField name="teller_utilization" type="object">
+  Utilization rate (0.0 to 1.0) for each individual teller.
+  
+  **Format:** `{ "teller_id": utilization_rate }`
+  
+  **Example:**
+  ```json
+  {
+    "T-1": 0.89,
+    "T-2": 0.87,
+    "T-3": 0.91
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="overall_utilization" type="float">
+  Average utilization across all tellers (0.0 to 1.0).
+  
+  **Calculation:** Mean of all teller utilization rates.
+  
+  **Example:** `0.89` (89% utilized)
+  
+  <Note>
+    Utilization above 0.90 (90%) often indicates the system is near capacity and may experience long queues.
+  </Note>
+</ResponseField>
+
+### Throughput Metrics
+
+<ResponseField name="throughput" type="float">
+  System throughput measured as customers served per unit time.
+  
+  **Formula:** `customers_served / total_simulation_time`
+  
+  **Units:** customers per second
+  
+  **Example:** `0.149` customers/second (≈8.94 customers/minute)
+</ResponseField>
+
+### System Health Metrics
+
+<ResponseField name="starvation_incidents" type="integer">
+  Number of times the system became completely idle (all tellers idle with no customers waiting).
+  
+  **Example:** `3` incidents
+  
+  <Note>
+    Frequent starvation indicates low arrival rate or excess capacity. Rare starvation is normal.
+  </Note>
+</ResponseField>
+
+## Live Metrics
+
+Real-time metrics returned by [GET /api/metrics/live](/api/metrics#get-live-metrics) during an active simulation.
+
+<ResponseField name="current_time" type="float">
+  Current simulation clock time in seconds.
+</ResponseField>
+
+<ResponseField name="current_queue_length" type="integer">
+  Number of customers currently waiting in queue.
+</ResponseField>
+
+<ResponseField name="active_tellers" type="integer">
+  Number of tellers currently serving customers (status = BUSY).
+</ResponseField>
+
+<ResponseField name="idle_tellers" type="integer">
+  Number of tellers currently available (status = IDLE).
+</ResponseField>
+
+<ResponseField name="customers_served_so_far" type="integer">
+  Total customers served up to the current simulation time.
+</ResponseField>
+
+<ResponseField name="customers_in_system" type="integer">
+  Total customers currently in the system (waiting + being served).
+</ResponseField>
+
+<ResponseField name="recent_throughput" type="float">
+  Customers served in the last time window.
+  
+  **Units:** customers per minute
+  
+  **Example:** `8.94` customers/minute
+</ResponseField>
+
+## Wait Time Record
+
+Detailed record for individual customer wait times (used internally for metrics calculation).
+
+<ResponseField name="customer_id" type="string">
+  Customer identifier.
+</ResponseField>
+
+<ResponseField name="priority" type="integer">
+  Customer priority level (1, 2, or 3).
+</ResponseField>
+
+<ResponseField name="wait_time" type="float">
+  Time spent waiting in queue (seconds).
+</ResponseField>
+
+<ResponseField name="service_time" type="float">
+  Time spent being served (seconds).
+</ResponseField>
+
+<ResponseField name="total_time" type="float">
+  Total time in system: `wait_time + service_time`
+</ResponseField>
+
+## Throughput Record
+
+Throughput measurement over a time interval (used for time-series analysis).
+
+<ResponseField name="timestamp" type="float">
+  Simulation time when the measurement was taken.
+</ResponseField>
+
+<ResponseField name="customers_served" type="integer">
+  Number of customers served during this interval.
+</ResponseField>
+
+<ResponseField name="customers_rejected" type="integer">
+  Number of customers rejected during this interval.
+</ResponseField>
+
+## Example Complete Report
+
+```json
+{
+  "status": "success",
+  "data": {
+    "simulation_id": "a3f2c1b5",
+    "total_simulation_time": 14400.0,
+    "customers_arrived": 2156,
+    "customers_served": 2148,
+    "customers_rejected": 8,
+    "average_wait_time": 45.3,
+    "wait_time_by_priority": {
+      "1": 12.5,
+      "2": 38.2,
+      "3": 67.8
+    },
+    "max_wait_time": 450.2,
+    "min_wait_time": 0.0,
+    "average_service_time": 3.98,
+    "average_total_time": 49.28,
+    "max_queue_length": 23,
+    "average_queue_length": 8.4,
+    "teller_utilization": {
+      "T-1": 0.89,
+      "T-2": 0.87,
+      "T-3": 0.91
+    },
+    "overall_utilization": 0.89,
+    "throughput": 0.149,
+    "starvation_incidents": 3
+  }
+}
+```
+
+## Key Performance Indicators
+
+### System Efficiency
+
+<ParamField path="service_level" type="derived">
+  Percentage of customers served (not rejected).
+  
+  **Formula:** `(customers_served / customers_arrived) × 100`
+  
+  **Target:** > 99%
+</ParamField>
+
+<ParamField path="average_wait_ratio" type="derived">
+  Ratio of wait time to service time.
+  
+  **Formula:** `average_wait_time / average_service_time`
+  
+  **Interpretation:**
+  - < 1.0: Wait time less than service time (good)
+  - 1.0-2.0: Moderate queue delays
+  - > 2.0: Significant queueing issues
+</ParamField>
+
+<ParamField path="utilization_balance" type="derived">
+  Variance in utilization across tellers.
+  
+  **Interpretation:** Low variance indicates balanced workload distribution.
+</ParamField>
+
+### Priority Fairness
+
+<ParamField path="priority_wait_ratio" type="derived">
+  Ratio between priority level wait times.
+  
+  **Example:**
+  ```
+  Wait time ratio (HIGH:MEDIUM:LOW) = 1:3:5.4
+  ```
+  
+  **Interpretation:** Shows effectiveness of priority queue system.
+</ParamField>
+
+## Metrics Best Practices
+
+<Warning>
+  Always allow simulations to reach steady-state before analyzing metrics. Initial transient periods may skew results.
+</Warning>
+
+<Note>
+  For reliable statistics, run simulations for at least 1000 customer arrivals or 2+ hours of simulation time.
+</Note>
+
+### Recommended Analysis
+
+1. **Capacity Planning:** Use `overall_utilization` and `throughput` to determine if staffing is adequate
+2. **Service Quality:** Monitor `average_wait_time` and `wait_time_by_priority` to ensure SLA compliance
+3. **Resource Optimization:** Compare individual `teller_utilization` to identify imbalances
+4. **Bottleneck Detection:** Check if `max_queue_length` approaches `max_queue_capacity`

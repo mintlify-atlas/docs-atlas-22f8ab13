@@ -1,0 +1,390 @@
+---
+title: Discrete Event Simulation
+description: Understanding event-driven simulation and how SimulationBank processes events chronologically
+---
+
+# Discrete Event Simulation (DES)
+
+DiscreteEventSimulation is the core paradigm powering SimulationBank. Unlike continuous simulation where time flows smoothly, DES advances time in discrete jumps from one event to the next.
+
+## What is Discrete Event Simulation?
+
+DES models systems as sequences of **events** that occur at specific points in time. The simulation maintains:
+
+1. **A virtual clock** that tracks simulated time (not real time)
+2. **An event queue** containing future scheduled events, ordered chronologically
+3. **System state** that changes instantaneously when events are processed
+
+Between events, nothing changes - time simply jumps forward to the next event.
+
+## Key Components
+
+<CardGroup cols={2}>
+  <Card title="Simulation Clock" icon="clock">
+    Virtual time counter (`self.clock`) that advances in discrete jumps
+  </Card>
+  
+  <Card title="Event Queue" icon="list">
+    Priority queue (heap) of future events ordered by time
+  </Card>
+  
+  <Card title="System State" icon="database">
+    Current state: tellers, waiting queue, customer statuses
+  </Card>
+  
+  <Card title="Event Handlers" icon="bolt">
+    Functions that process events and update state
+  </Card>
+</CardGroup>
+
+## SimulationBank's DES Implementation
+
+### The DiscreteEventSimulation Class
+
+Defined in `backend/src/simulation/domain/simulation.py:14`:
+
+```python
+class DiscreteEventSimulation:
+    """
+    Entidad raíz: representa una instancia completa de la simulación del banco.
+    Actúa como el motor central que coordina el tiempo, procesa la cola de eventos y asigna los recursos.
+    """
+    def __init__(self, simulation_id: str, config: SimulationConfig):
+        self.simulation_id = simulation_id
+        self.config = config
+        self.status = SimulationStatus.IDLE
+        self.clock: float = 0.0  # Virtual simulation clock
+        
+        # System state
+        self.tellers: Dict[str, Teller] = {}
+        self.waiting_queue: List[Customer] = []
+        
+        # Event queue (priority queue ordered by time)
+        self.event_queue: List[SimulationEvent] = []
+        
+        # Customer generator using Poisson process
+        self.generator = ConfigurableGenerator(_gen_config)
+```
+
+### Event Types
+
+SimulationBank models three event types (from `simulation_event.py:6`):
+
+```python
+class EventType(str, Enum):
+    ARRIVAL = "ARRIVAL"              # Customer enters bank
+    SERVICE_START = "SERVICE_START"  # Customer reaches teller window
+    SERVICE_END = "SERVICE_END"      # Customer completes transaction
+```
+
+## The Main Simulation Loop
+
+### Initialization
+
+From `simulation.py:36`:
+
+```python
+def initialize(self) -> None:
+    """
+    Prepara el sistema antes de iniciar.
+    Inicializa las ventanillas, vacía las colas y programa mecánicamente el primer cliente en llegar.
+    """
+    self.status = SimulationStatus.IDLE
+    self.clock = 0.0
+    self.waiting_queue.clear()
+    self.event_queue.clear()
+    
+    # Initialize tellers
+    for i in range(self.config.num_tellers):
+        t_id = f"T-{i+1}"
+        self.tellers[t_id] = Teller(id=t_id)
+        
+    # Schedule first arrival
+    first_arrival_time = self.generator.get_next_arrival_interval()
+    if first_arrival_time <= self.config.max_simulation_time:
+        self.schedule_event(SimulationEvent(first_arrival_time, EventType.ARRIVAL, customer=None))
+```
+
+<Steps>
+  <Step title="Reset state">
+    Clock → 0.0, clear all queues, set status to IDLE
+  </Step>
+  
+  <Step title="Create tellers">
+    Initialize `num_tellers` teller entities (T-1, T-2, T-3, ...)
+  </Step>
+  
+  <Step title="Schedule first event">
+    Generate random interval for first customer arrival and add to event queue
+  </Step>
+</Steps>
+
+### The Run Loop
+
+From `simulation.py:56`:
+
+```python
+def run(self) -> None:
+    """
+    Bucle principal del motor de simulación.
+    Extrae cronológicamente el próximo evento, adelanta el reloj y ejecuta su lógica 
+    hasta agotar la cola de eventos o superar el tiempo máximo.
+    """
+    self.status = SimulationStatus.RUNNING
+    while self.event_queue and self.status == SimulationStatus.RUNNING:
+        current_event = heapq.heappop(self.event_queue)  # Get earliest event
+        
+        # Check termination
+        if current_event.time > self.config.max_simulation_time:
+            break
+            
+        # Advance clock to event time
+        self.clock = current_event.time
+        self.process_next_event(current_event)
+        
+    self.status = SimulationStatus.FINISHED
+```
+
+<Steps>
+  <Step title="Extract next event">
+    Pop the earliest event from the priority queue using `heapq.heappop()`
+  </Step>
+  
+  <Step title="Advance clock">
+    Jump virtual time to the event's timestamp: `self.clock = current_event.time`
+  </Step>
+  
+  <Step title="Process event">
+    Execute event-specific logic that updates system state
+  </Step>
+  
+  <Step title="Repeat">
+    Loop until event queue is empty or max simulation time exceeded
+  </Step>
+</Steps>
+
+### Event Scheduling
+
+From `simulation.py:76`:
+
+```python
+def schedule_event(self, event: SimulationEvent) -> None:
+    """
+    Añade un nuevo evento futuro a la línea de tiempo.
+    Utiliza heappush para mantener la consistencia de eventos ordenados por tiempo.
+    """
+    heapq.heappush(self.event_queue, event)
+```
+
+**Why heapq?**
+- Min-heap maintains events in chronological order
+- O(log n) insertion and O(log n) extraction
+- Events are ordered by `SimulationEvent.time` field
+
+## Event Processing Flow
+
+### Event Dispatcher
+
+From `simulation.py:83`:
+
+```python
+def process_next_event(self, event: SimulationEvent) -> None:
+    """
+    Conmutador (switch) central que redirige el flujo de procesamiento dependiendo
+    de si el evento es una llegada, un inicio de atención, o un fin de servicio.
+    """
+    if event.event_type == EventType.ARRIVAL:
+        self.handle_arrival()
+    elif event.event_type == EventType.SERVICE_START:
+        self.handle_service_start(event.teller_id, event.customer)
+    elif event.event_type == EventType.SERVICE_END:
+        self.handle_service_end(event.teller_id)
+```
+
+### ARRIVAL Event
+
+From `simulation.py:95`:
+
+```python
+def handle_arrival(self) -> None:
+    # 1. Generate customer attributes
+    prio, txn = self.generator.get_next_customer_attributes()
+    service_time = max(0.1, self.generator.get_service_time())
+    
+    customer = Customer(
+        id=str(uuid.uuid4())[:8],
+        arrival_time=self.clock,
+        service_time=service_time,
+        priority=prio,
+        transaction_type=txn
+    )
+    
+    # 2. Add to waiting queue (sorted by priority)
+    self.waiting_queue.append(customer)
+    self.waiting_queue.sort(key=lambda c: (c.priority, c.arrival_time))
+    
+    # 3. Schedule NEXT arrival
+    next_interval = self.generator.get_next_arrival_interval()
+    next_time = self.clock + next_interval
+    if next_time <= self.config.max_simulation_time:
+        self.schedule_event(SimulationEvent(next_time, EventType.ARRIVAL))
+        
+    # 4. Try to assign idle teller
+    self._assign_free_teller()
+```
+
+<Note>
+Each ARRIVAL event schedules the NEXT arrival, creating a self-perpetuating stream of customers until max_simulation_time.
+</Note>
+
+### SERVICE_START Event
+
+From `simulation.py:129`:
+
+```python
+def handle_service_start(self, teller_id: str, customer: Customer) -> None:
+    teller = self.tellers.get(teller_id)
+    if teller:
+        teller.start_service(customer, self.clock)
+        # Schedule service completion
+        end_time = self.clock + customer.service_time
+        self.schedule_event(SimulationEvent(end_time, EventType.SERVICE_END, teller_id=teller_id))
+```
+
+### SERVICE_END Event
+
+From `simulation.py:141`:
+
+```python
+def handle_service_end(self, teller_id: str) -> None:
+    teller = self.tellers.get(teller_id)
+    if teller:
+        teller.end_service()  # Customer leaves, teller becomes IDLE
+        self._assign_free_teller()  # Try to serve next in queue
+```
+
+## Example Event Timeline
+
+```
+Time    Event              Action
+----    -----              ------
+0.0     INITIALIZATION     Create 3 tellers (T-1, T-2, T-3)
+                           Schedule ARRIVAL at t=0.8
+
+0.8     ARRIVAL            Create Customer C1 (priority=2, service_time=4.2)
+                           Add C1 to queue
+                           Schedule next ARRIVAL at t=1.5
+                           T-1 is IDLE → Schedule SERVICE_START at t=0.8
+
+0.8     SERVICE_START      T-1 starts serving C1
+                           Schedule SERVICE_END at t=5.0 (0.8 + 4.2)
+
+1.5     ARRIVAL            Create Customer C2 (priority=1, service_time=3.1)
+                           Add C2 to queue (priority 1 > C1's priority 2)
+                           Schedule next ARRIVAL at t=2.3
+                           T-2 is IDLE → Schedule SERVICE_START at t=1.5
+
+1.5     SERVICE_START      T-2 starts serving C2
+                           Schedule SERVICE_END at t=4.6 (1.5 + 3.1)
+
+2.3     ARRIVAL            Create Customer C3 (priority=3, service_time=5.5)
+                           Add C3 to queue
+                           Schedule next ARRIVAL at t=3.1
+                           T-3 is IDLE → Schedule SERVICE_START at t=2.3
+
+2.3     SERVICE_START      T-3 starts serving C3
+                           Schedule SERVICE_END at t=7.8 (2.3 + 5.5)
+
+4.6     SERVICE_END        C2 completes, T-2 becomes IDLE
+                           Check queue for next customer
+
+5.0     SERVICE_END        C1 completes, T-1 becomes IDLE
+                           Check queue for next customer
+
+...
+```
+
+## Time vs. Real-Time
+
+<Warning>
+Simulation time is NOT real-time!
+</Warning>
+
+- **Simulation clock**: Virtual time measured in simulated seconds
+- **Wall-clock time**: Actual seconds on your computer
+
+A simulation covering 8 hours (28,800 simulated seconds) might complete in milliseconds of real time.
+
+## Advantages of DES
+
+<CardGroup cols={2}>
+  <Card title="Efficiency" icon="gauge-high">
+    No computation during idle periods - only process meaningful events
+  </Card>
+  
+  <Card title="Precision" icon="bullseye">
+    Events occur at exact simulated times, no discretization error
+  </Card>
+  
+  <Card title="Speed" icon="rocket">
+    Simulate years of operation in seconds of real time
+  </Card>
+  
+  <Card title="Scalability" icon="chart-line">
+    Handle sparse events efficiently (low arrival rates)
+  </Card>
+</CardGroup>
+
+## Comparison: DES vs. Time-Stepped Simulation
+
+| Aspect | Discrete Event Simulation | Time-Stepped Simulation |
+|--------|---------------------------|-------------------------|
+| **Time advancement** | Jump to next event | Fixed time increments (Δt) |
+| **Computational cost** | O(# events) | O(simulation_time / Δt) |
+| **Event timing** | Exact event times | Approximated to nearest Δt |
+| **Idle periods** | Skipped instantly | Still computed |
+| **Best for** | Queueing systems, sparse events | Physics, continuous dynamics |
+
+## Common Pitfalls
+
+<AccordionGroup>
+  <Accordion title="Forgetting to schedule future events">
+    Each event handler must schedule its consequent events:
+    - ARRIVAL must schedule next ARRIVAL
+    - SERVICE_START must schedule SERVICE_END
+    
+    Otherwise, the event queue will drain and simulation will halt prematurely.
+  </Accordion>
+  
+  <Accordion title="Confusing simulation time with real time">
+    `self.clock = 3600.0` means 1 hour of simulated time, NOT 1 hour of waiting.
+  </Accordion>
+  
+  <Accordion title="Processing events out of order">
+    Always use `heapq.heappop()` to ensure chronological processing. Never directly index or iterate `event_queue`.
+  </Accordion>
+  
+  <Accordion title="Modifying state outside event handlers">
+    All state changes must occur within event handlers to maintain simulation integrity.
+  </Accordion>
+</AccordionGroup>
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Priority Queuing" icon="layer-group" href="/concepts/priority-queuing">
+    How customers are ordered in the waiting queue
+  </Card>
+  
+  <Card title="Poisson Arrivals" icon="chart-line" href="/concepts/poisson-arrivals">
+    How customer arrival times are generated
+  </Card>
+  
+  <Card title="Simulation Engine" icon="gear" href="/features/simulation-engine">
+    Deep dive into DiscreteEventSimulation class
+  </Card>
+  
+  <Card title="Resource Management" icon="users" href="/concepts/resource-management">
+    How tellers are allocated to customers
+  </Card>
+</CardGroup>

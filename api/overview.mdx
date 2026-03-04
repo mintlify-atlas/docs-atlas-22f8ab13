@@ -1,0 +1,96 @@
+---
+title: API Overview
+description: Introduction to the SimulationBank REST API
+---
+
+## Base URL
+
+All API requests should be made to:
+
+```
+http://localhost:5000/api
+```
+
+## Authentication
+
+Currently, the SimulationBank API does not require authentication. All endpoints are publicly accessible for development and testing purposes.
+
+<Note>
+  In a production environment, you should implement proper authentication mechanisms such as API keys or OAuth tokens.
+</Note>
+
+## Response Format
+
+All API responses follow a consistent JSON format:
+
+### Success Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    // Response data specific to the endpoint
+  }
+}
+```
+
+### Error Response
+
+```json
+{
+  "status": "error",
+  "message": "Description of what went wrong",
+  "code": "ERROR_CODE"
+}
+```
+
+## Common Error Codes
+
+<ResponseField name="400" type="Bad Request">
+  Invalid request parameters or malformed JSON body.
+</ResponseField>
+
+<ResponseField name="404" type="Not Found">
+  The requested resource does not exist.
+</ResponseField>
+
+<ResponseField name="409" type="Conflict">
+  Request conflicts with current state (e.g., trying to start an already running simulation).
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  An unexpected error occurred on the server.
+</ResponseField>
+
+## Rate Limits
+
+Currently, there are no rate limits enforced on API endpoints. However, running multiple concurrent simulations may impact performance.
+
+<Warning>
+  Only one simulation can be active at a time. Attempting to start a new simulation while one is running will result in a 409 Conflict error.
+</Warning>
+
+## Request Headers
+
+All requests should include:
+
+```http
+Content-Type: application/json
+```
+
+## API Resources
+
+The SimulationBank API provides the following resource endpoints:
+
+- **[Simulation](/api/simulation)** - Control simulation lifecycle (start, pause, stop, get state)
+- **[Metrics](/api/metrics)** - Retrieve simulation metrics and reports
+- **[Tellers](/api/tellers)** - Query teller state and statistics
+
+## Data Models
+
+Detailed schema documentation for request and response objects:
+
+- **[SimulationConfig](/api/models/simulation-config)** - Configuration parameters for simulations
+- **[Customer](/api/models/customer)** - Customer entity structure
+- **[Teller](/api/models/teller)** - Teller entity structure
+- **[Metrics](/api/models/metrics)** - Metrics and statistics data structures

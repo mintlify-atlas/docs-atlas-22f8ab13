@@ -1,0 +1,163 @@
+---
+title: Introduction to SimulationBank
+description: A discrete event simulation platform for modeling bank queue operations
+---
+
+# Welcome to SimulationBank
+
+SimulationBank is a comprehensive discrete event simulation (DES) platform designed to model and analyze bank queue operations. Built with Python (Flask) on the backend and React on the frontend, it provides real-time visualization and analytics for understanding customer flow, resource utilization, and service efficiency in banking environments.
+
+## What is SimulationBank?
+
+SimulationBank simulates the dynamics of a bank branch where:
+- **Customers** arrive following a Poisson process with configurable arrival rates
+- **Priority queuing** ensures high-priority customers (elderly, pregnant) are served first
+- **Tellers** act as finite resources that serve customers with varying service times
+- **Events** drive the simulation: arrivals, service starts, and service completions
+
+The simulation engine processes events chronologically, advancing a virtual clock and maintaining system state including queue contents, teller availability, and customer statuses.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Discrete Event Simulation" icon="clock">
+    Event-driven architecture using a priority queue (heap) for chronological event processing
+  </Card>
+  <Card title="Priority Queuing System" icon="layer-group">
+    Three-tier priority system (High/Medium/Low) with FIFO within each priority level
+  </Card>
+  <Card title="Poisson Arrivals" icon="chart-line">
+    Realistic customer generation using exponential inter-arrival times
+  </Card>
+  <Card title="Real-time Visualization" icon="eye">
+    Live queue display showing customer priorities and teller states
+  </Card>
+  <Card title="Metrics Dashboard" icon="chart-bar">
+    Comprehensive analytics: wait times, throughput, saturation, queue length
+  </Card>
+  <Card title="Configurable Parameters" icon="sliders">
+    Tune arrival rates, service times, teller count, and priority distributions
+  </Card>
+</CardGroup>
+
+## Who is SimulationBank For?
+
+<AccordionGroup>
+  <Accordion title="Operations Researchers">
+    Model queueing systems, validate theoretical models (M/M/c queues), and optimize resource allocation strategies.
+  </Accordion>
+  
+  <Accordion title="Bank Operations Managers">
+    Understand staffing requirements during peak hours, analyze the impact of priority service policies, and forecast service levels.
+  </Accordion>
+  
+  <Accordion title="Students & Educators">
+    Learn discrete event simulation concepts, queueing theory, and stochastic processes through interactive visualization.
+  </Accordion>
+  
+  <Accordion title="Software Engineers">
+    Explore event-driven architecture, domain-driven design patterns, and real-time data visualization techniques.
+  </Accordion>
+</AccordionGroup>
+
+## Use Cases
+
+### Capacity Planning
+Determine the optimal number of tellers needed to maintain acceptable wait times during different times of day or seasonal peaks.
+
+### Policy Analysis
+Evaluate the impact of priority queuing policies on overall customer satisfaction and wait time distributions across customer segments.
+
+### Performance Benchmarking
+Establish baseline performance metrics and identify bottlenecks in customer service workflows.
+
+### What-If Scenarios
+Simulate high-load conditions, teller breakdowns, or changes in customer arrival patterns to assess system resilience.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────┐
+│           Frontend (React + Vite)           │
+│  ┌─────────────────┐  ┌─────────────────┐  │
+│  │ Queue Visualizer│  │Metrics Dashboard│  │
+│  └─────────────────┘  └─────────────────┘  │
+└─────────────────┬───────────────────────────┘
+                  │ REST API
+┌─────────────────▼───────────────────────────┐
+│          Backend (Flask + Python)           │
+│  ┌──────────────────────────────────────┐  │
+│  │  DiscreteEventSimulation Engine      │  │
+│  │  - Event Queue (heapq)               │  │
+│  │  - Teller Management                 │  │
+│  │  - Priority Queue Sorting            │  │
+│  │  - Poisson Customer Generator        │  │
+│  └──────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
+```
+
+## Technology Stack
+
+**Backend:**
+- Python 3.x
+- Flask (REST API)
+- flask-cors (cross-origin support)
+- heapq (priority queue implementation)
+
+**Frontend:**
+- React 19.2.0
+- Vite 7.3.1 (build tool)
+- React Hooks (state management)
+- Real-time API polling
+
+## Core Concepts
+
+Before diving in, familiarize yourself with these foundational concepts:
+
+- **[Discrete Event Simulation](/concepts/discrete-event-simulation)**: How events drive the simulation forward
+- **[Priority Queuing](/concepts/priority-queuing)**: Multi-level queue management with heap-based implementation
+- **[Poisson Arrivals](/concepts/poisson-arrivals)**: Stochastic customer generation using exponential distributions
+- **[Resource Management](/concepts/resource-management)**: Teller allocation and state transitions
+
+## Getting Started
+
+<Steps>
+  <Step title="Install Dependencies">
+    Set up both backend (Python/Flask) and frontend (Node.js/React) environments.
+    
+    See [Installation Guide](/installation)
+  </Step>
+  
+  <Step title="Quick Start">
+    Run your first simulation in under 5 minutes.
+    
+    See [Quickstart Guide](/quickstart)
+  </Step>
+  
+  <Step title="Explore Features">
+    Learn about the simulation engine, visualization, and metrics.
+    
+    Browse [Features Documentation](/features/simulation-engine)
+  </Step>
+</Steps>
+
+<Note>
+SimulationBank uses a virtual clock that advances in discrete jumps between events. One second of real time does not equal one second of simulation time.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first simulation
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed setup instructions
+  </Card>
+  <Card title="Concepts" icon="book" href="/concepts/discrete-event-simulation">
+    Learn the fundamentals
+  </Card>
+  <Card title="Guides" icon="map" href="/guides/running-simulations">
+    Step-by-step tutorials
+  </Card>
+</CardGroup>

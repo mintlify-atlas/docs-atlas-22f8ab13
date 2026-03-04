@@ -1,0 +1,168 @@
+---
+title: Teller Endpoints
+description: Query teller state and performance statistics
+---
+
+## Get Tellers State
+
+<api-endpoint method="GET" path="/api/tellers/state" />
+
+Retrieves the current state of all teller windows in the simulation, including their status, current customer (if any), and service statistics.
+
+### Response
+
+<ResponseField name="status" type="string">
+  Status of the response: `success` or `error`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="tellers" type="array">
+      Array of [Teller](/api/models/teller) objects.
+      
+      <Expandable title="teller object">
+        <ResponseField name="id" type="string">
+          Teller identifier (e.g., "T-1", "T-2").
+        </ResponseField>
+        
+        <ResponseField name="status" type="string">
+          Current operational status: `IDLE`, `BUSY`, or `BROKEN`.
+        </ResponseField>
+        
+        <ResponseField name="current_customer" type="object | null">
+          The [Customer](/api/models/customer) currently being served, or `null` if idle.
+        </ResponseField>
+        
+        <ResponseField name="sessions_served" type="integer">
+          Total number of customers served by this teller.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="summary" type="object">
+      <Expandable title="properties">
+        <ResponseField name="total_tellers" type="integer">
+          Total number of teller windows.
+        </ResponseField>
+        
+        <ResponseField name="idle_count" type="integer">
+          Number of tellers currently idle.
+        </ResponseField>
+        
+        <ResponseField name="busy_count" type="integer">
+          Number of tellers currently serving customers.
+        </ResponseField>
+        
+        <ResponseField name="broken_count" type="integer">
+          Number of tellers out of service.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl http://localhost:5000/api/tellers/state
+```
+
+### Example Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "tellers": [
+      {
+        "id": "T-1",
+        "status": "BUSY",
+        "current_customer": {
+          "id": "c7f3a1b2",
+          "arrival_time": 3240.15,
+          "service_time": 4.2,
+          "priority": 2,
+          "transaction_type": "DEPOSIT",
+          "status": "BEING_SERVED",
+          "service_start_time": 3245.30
+        },
+        "sessions_served": 45
+      },
+      {
+        "id": "T-2",
+        "status": "IDLE",
+        "current_customer": null,
+        "sessions_served": 42
+      },
+      {
+        "id": "T-3",
+        "status": "BUSY",
+        "current_customer": {
+          "id": "d8e4b3c1",
+          "arrival_time": 3238.92,
+          "service_time": 5.1,
+          "priority": 1,
+          "transaction_type": "WITHDRAWAL",
+          "status": "BEING_SERVED",
+          "service_start_time": 3243.10
+        },
+        "sessions_served": 48
+      }
+    ],
+    "summary": {
+      "total_tellers": 3,
+      "idle_count": 1,
+      "busy_count": 2,
+      "broken_count": 0
+    }
+  }
+}
+```
+
+<Note>
+  Teller state is only available when a simulation is initialized or running. The endpoint will return an error if no simulation exists.
+</Note>
+
+## Use Cases
+
+### Monitor Teller Utilization
+
+Use this endpoint to track real-time teller utilization and identify bottlenecks:
+
+```bash
+# Poll teller state every 5 seconds
+while true; do
+  curl http://localhost:5000/api/tellers/state | jq '.data.summary'
+  sleep 5
+done
+```
+
+### Identify Idle Resources
+
+Filter for idle tellers to optimize resource allocation:
+
+```bash
+curl http://localhost:5000/api/tellers/state | \
+  jq '.data.tellers[] | select(.status == "IDLE")'
+```
+
+### Track Individual Performance
+
+Monitor how many customers each teller has served:
+
+```bash
+curl http://localhost:5000/api/tellers/state | \
+  jq '.data.tellers[] | {id, sessions_served}'
+```
+
+## Teller Status Values
+
+<ParamField path="status" type="enum">
+  - `IDLE` - Teller is available and waiting for the next customer
+  - `BUSY` - Teller is currently serving a customer
+  - `BROKEN` - Teller is out of service (simulated failure scenario)
+</ParamField>
+
+<Warning>
+  The `BROKEN` status is used for simulating service disruptions. In the current implementation, tellers do not automatically break but this status is available for future enhancements.
+</Warning>

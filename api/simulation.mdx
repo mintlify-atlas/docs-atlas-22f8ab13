@@ -1,0 +1,351 @@
+---
+title: Simulation Endpoints
+description: Control discrete event simulation lifecycle
+---
+
+## Start Simulation
+
+<api-endpoint method="POST" path="/api/simulation/start" />
+
+Initializes and starts a new discrete event simulation with the provided configuration.
+
+### Request Body
+
+<ParamField body="num_tellers" type="integer" default={3}>
+  Number of teller windows available to serve customers simultaneously.
+</ParamField>
+
+<ParamField body="arrival_config" type="object">
+  Configuration for customer arrival patterns.
+  
+  <Expandable title="properties">
+    <ParamField body="arrival_rate" type="float" default={1.0}>
+      Lambda parameter for arrival rate (customers per time unit).
+    </ParamField>
+    
+    <ParamField body="arrival_dist" type="string" default="exponential">
+      Probability distribution for arrival intervals. Options: `exponential`
+    </ParamField>
+    
+    <ParamField body="priority_weights" type="array" default={[0.1, 0.3, 0.6]}>
+      Probability weights for priority levels [HIGH, MEDIUM, LOW]. Must sum to 1.0.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="service_config" type="object">
+  Configuration for customer service time patterns.
+  
+  <Expandable title="properties">
+    <ParamField body="service_mean" type="float" default={5.0}>
+      Mean service time in seconds (mu parameter).
+    </ParamField>
+    
+    <ParamField body="service_dist" type="string" default="exponential">
+      Probability distribution for service times. Options: `exponential`
+    </ParamField>
+    
+    <ParamField body="service_stddev" type="float" default={1.0}>
+      Standard deviation for service time distribution (when applicable).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="max_simulation_time" type="float" default={28800}>
+  Maximum simulation time in seconds. Default is 28800 (8 hours).
+</ParamField>
+
+<ParamField body="max_queue_capacity" type="integer" default={100}>
+  Maximum number of customers that can wait in queue simultaneously.
+</ParamField>
+
+### Response
+
+<ResponseField name="status" type="string">
+  Status of the response: `success` or `error`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="simulation_id" type="string">
+      Unique identifier for the started simulation (UUID format).
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current simulation status: `RUNNING`
+    </ResponseField>
+    
+    <ResponseField name="message" type="string">
+      Confirmation message.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:5000/api/simulation/start \
+  -H "Content-Type: application/json" \
+  -d '{
+    "num_tellers": 3,
+    "arrival_config": {
+      "arrival_rate": 1.5,
+      "arrival_dist": "exponential",
+      "priority_weights": [0.15, 0.35, 0.5]
+    },
+    "service_config": {
+      "service_mean": 4.0,
+      "service_dist": "exponential",
+      "service_stddev": 1.0
+    },
+    "max_simulation_time": 14400,
+    "max_queue_capacity": 50
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "simulation_id": "a3f2c1b5",
+    "status": "RUNNING",
+    "message": "Simulation started successfully"
+  }
+}
+```
+
+<Note>
+  Only one simulation can run at a time. Starting a new simulation will fail if another is already active.
+</Note>
+
+---
+
+## Pause Simulation
+
+<api-endpoint method="POST" path="/api/simulation/pause" />
+
+Pauses the currently running simulation, preserving all state for later resumption.
+
+### Response
+
+<ResponseField name="status" type="string">
+  Status of the response: `success` or `error`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="simulation_id" type="string">
+      Identifier of the paused simulation.
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current simulation status: `PAUSED`
+    </ResponseField>
+    
+    <ResponseField name="current_time" type="float">
+      Simulation clock time when paused (in seconds).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:5000/api/simulation/pause
+```
+
+### Example Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "simulation_id": "a3f2c1b5",
+    "status": "PAUSED",
+    "current_time": 1250.45
+  }
+}
+```
+
+<Warning>
+  This endpoint requires an active simulation. Calling it when no simulation is running will return an error.
+</Warning>
+
+---
+
+## Stop Simulation
+
+<api-endpoint method="POST" path="/api/simulation/stop" />
+
+Stops the currently running or paused simulation and finalizes all metrics.
+
+### Response
+
+<ResponseField name="status" type="string">
+  Status of the response: `success` or `error`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="simulation_id" type="string">
+      Identifier of the stopped simulation.
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Final simulation status: `FINISHED`
+    </ResponseField>
+    
+    <ResponseField name="final_time" type="float">
+      Simulation clock time when stopped (in seconds).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:5000/api/simulation/stop
+```
+
+### Example Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "simulation_id": "a3f2c1b5",
+    "status": "FINISHED",
+    "final_time": 14400.0
+  }
+}
+```
+
+---
+
+## Get Simulation State
+
+<api-endpoint method="GET" path="/api/simulation/state" />
+
+Retrieves the current state snapshot of the simulation, including status, time, and active entities.
+
+### Response
+
+<ResponseField name="status" type="string">
+  Status of the response: `success` or `error`
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="simulation_id" type="string">
+      Unique identifier of the simulation.
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current status: `IDLE`, `RUNNING`, `PAUSED`, or `FINISHED`
+    </ResponseField>
+    
+    <ResponseField name="clock" type="float">
+      Current simulation time in seconds.
+    </ResponseField>
+    
+    <ResponseField name="config" type="object">
+      The [SimulationConfig](/api/models/simulation-config) used for this simulation.
+    </ResponseField>
+    
+    <ResponseField name="tellers" type="array">
+      Array of [Teller](/api/models/teller) objects representing all teller windows.
+    </ResponseField>
+    
+    <ResponseField name="waiting_queue_length" type="integer">
+      Number of customers currently waiting in queue.
+    </ResponseField>
+    
+    <ResponseField name="waiting_queue" type="array">
+      Array of [Customer](/api/models/customer) objects currently in queue.
+    </ResponseField>
+    
+    <ResponseField name="event_queue_size" type="integer">
+      Number of future events scheduled in the event queue.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl http://localhost:5000/api/simulation/state
+```
+
+### Example Response
+
+```json
+{
+  "status": "success",
+  "data": {
+    "simulation_id": "a3f2c1b5",
+    "status": "RUNNING",
+    "clock": 3247.82,
+    "config": {
+      "num_tellers": 3,
+      "arrival_config": {
+        "arrival_rate": 1.5,
+        "arrival_dist": "exponential",
+        "priority_weights": [0.15, 0.35, 0.5]
+      },
+      "service_config": {
+        "service_mean": 4.0,
+        "service_dist": "exponential",
+        "service_stddev": 1.0
+      },
+      "max_simulation_time": 14400,
+      "max_queue_capacity": 50
+    },
+    "tellers": [
+      {
+        "id": "T-1",
+        "status": "BUSY",
+        "current_customer": {
+          "id": "c7f3a1b2",
+          "priority": 2,
+          "transaction_type": "DEPOSIT"
+        },
+        "sessions_served": 45
+      },
+      {
+        "id": "T-2",
+        "status": "IDLE",
+        "current_customer": null,
+        "sessions_served": 42
+      },
+      {
+        "id": "T-3",
+        "status": "BUSY",
+        "current_customer": {
+          "id": "d8e4b3c1",
+          "priority": 1,
+          "transaction_type": "WITHDRAWAL"
+        },
+        "sessions_served": 48
+      }
+    ],
+    "waiting_queue_length": 7,
+    "waiting_queue": [
+      {
+        "id": "e9f5c4d2",
+        "arrival_time": 3245.12,
+        "service_time": 3.8,
+        "priority": 1,
+        "transaction_type": "PAYMENT",
+        "status": "WAITING"
+      }
+    ],
+    "event_queue_size": 15
+  }
+}
+```
+
+<Note>
+  The state endpoint provides a real-time snapshot. For high-frequency monitoring, consider implementing a polling mechanism with appropriate intervals.
+</Note>

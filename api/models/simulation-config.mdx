@@ -1,0 +1,194 @@
+---
+title: SimulationConfig
+description: Configuration parameters for discrete event simulations
+---
+
+## Overview
+
+The `SimulationConfig` object defines all parameters needed to configure and launch a bank simulation. It controls the number of resources, arrival patterns, service characteristics, and operational limits.
+
+## Schema
+
+<ParamField path="num_tellers" type="integer" default={3}>
+  Number of teller windows available to serve customers simultaneously.
+  
+  **Constraints:**
+  - Must be a positive integer
+  - Recommended range: 1-10 for optimal performance
+</ParamField>
+
+<ParamField path="arrival_config" type="object">
+  Configuration object defining customer arrival patterns.
+  
+  <Expandable title="properties">
+    <ParamField path="arrival_rate" type="float" default={1.0}>
+      Lambda (λ) parameter for the arrival rate, representing customers per time unit.
+      
+      **Example:** `1.5` means an average of 1.5 customers arrive per second.
+    </ParamField>
+    
+    <ParamField path="arrival_dist" type="string" default="exponential">
+      Probability distribution model for arrival intervals.
+      
+      **Supported values:**
+      - `exponential` - Poisson arrival process (memoryless property)
+    </ParamField>
+    
+    <ParamField path="priority_weights" type="array" default={[0.1, 0.3, 0.6]}>
+      Probability weights for assigning priority levels to arriving customers.
+      
+      **Format:** `[HIGH, MEDIUM, LOW]`
+      
+      **Constraints:**
+      - Must be an array of exactly 3 floats
+      - Values must sum to 1.0
+      - Each value must be between 0.0 and 1.0
+      
+      **Example:** `[0.15, 0.35, 0.5]` means:
+      - 15% HIGH priority (elderly, pregnant, disabled)
+      - 35% MEDIUM priority (preferred customers)
+      - 50% LOW priority (regular customers)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="service_config" type="object">
+  Configuration object defining service time characteristics.
+  
+  <Expandable title="properties">
+    <ParamField path="service_mean" type="float" default={5.0}>
+      Mean (μ) service time in seconds required to process a customer transaction.
+      
+      **Example:** `4.0` means average service time is 4 seconds.
+    </ParamField>
+    
+    <ParamField path="service_dist" type="string" default="exponential">
+      Probability distribution model for service durations.
+      
+      **Supported values:**
+      - `exponential` - Exponential service time distribution
+    </ParamField>
+    
+    <ParamField path="service_stddev" type="float" default={1.0}>
+      Standard deviation (σ) for service time distribution.
+      
+      **Note:** Used when distribution requires variance parameter. For exponential distribution, this may be ignored as variance is determined by the mean.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="max_simulation_time" type="float" default={28800}>
+  Maximum simulation time horizon in seconds. Simulation will terminate when this time is reached.
+  
+  **Default:** `28800` seconds (8 hours)
+  
+  **Common values:**
+  - `3600` - 1 hour
+  - `14400` - 4 hours
+  - `28800` - 8 hours (full business day)
+  - `43200` - 12 hours
+</ParamField>
+
+<ParamField path="max_queue_capacity" type="integer" default={100}>
+  Maximum number of customers that can wait in queue simultaneously. Customers arriving when the queue is at capacity will be rejected.
+  
+  **Constraints:**
+  - Must be a positive integer
+  - Recommended: Set based on physical space constraints
+  
+  **Note:** When queue reaches capacity, new arrivals are rejected and counted in the `customers_rejected` metric.
+</ParamField>
+
+## Example Configuration
+
+### Basic Configuration
+
+```json
+{
+  "num_tellers": 3,
+  "arrival_config": {
+    "arrival_rate": 1.0,
+    "arrival_dist": "exponential",
+    "priority_weights": [0.1, 0.3, 0.6]
+  },
+  "service_config": {
+    "service_mean": 5.0,
+    "service_dist": "exponential",
+    "service_stddev": 1.0
+  },
+  "max_simulation_time": 28800,
+  "max_queue_capacity": 100
+}
+```
+
+### High-Traffic Scenario
+
+```json
+{
+  "num_tellers": 5,
+  "arrival_config": {
+    "arrival_rate": 2.5,
+    "arrival_dist": "exponential",
+    "priority_weights": [0.2, 0.3, 0.5]
+  },
+  "service_config": {
+    "service_mean": 3.5,
+    "service_dist": "exponential",
+    "service_stddev": 0.8
+  },
+  "max_simulation_time": 14400,
+  "max_queue_capacity": 150
+}
+```
+
+### Low-Traffic Scenario
+
+```json
+{
+  "num_tellers": 2,
+  "arrival_config": {
+    "arrival_rate": 0.5,
+    "arrival_dist": "exponential",
+    "priority_weights": [0.1, 0.2, 0.7]
+  },
+  "service_config": {
+    "service_mean": 6.0,
+    "service_dist": "exponential",
+    "service_stddev": 1.5
+  },
+  "max_simulation_time": 28800,
+  "max_queue_capacity": 50
+}
+```
+
+## Validation Rules
+
+<Warning>
+  All configuration parameters are validated on simulation start. Invalid configurations will return a `400 Bad Request` error.
+</Warning>
+
+Common validation errors:
+
+- `priority_weights` must sum to 1.0
+- `num_tellers` must be at least 1
+- `arrival_rate` and `service_mean` must be positive
+- `max_simulation_time` must be greater than 0
+- `max_queue_capacity` must be a positive integer
+
+## Performance Considerations
+
+<Note>
+  **System Utilization:** The ratio of arrival rate to service capacity (ρ = λ/(μ×c)) should typically be less than 1.0 to avoid unbounded queue growth, where:
+  - λ = arrival_rate
+  - μ = 1/service_mean
+  - c = num_tellers
+</Note>
+
+### Recommended Configurations
+
+| Scenario | Tellers | Arrival Rate | Service Mean | Utilization |
+|----------|---------|--------------|--------------|-------------|
+| Low      | 2       | 0.5          | 6.0          | ~45%        |
+| Medium   | 3       | 1.0          | 5.0          | ~60%        |
+| High     | 5       | 2.5          | 3.5          | ~87%        |
+| Stress   | 3       | 2.0          | 2.5          | ~97%        |

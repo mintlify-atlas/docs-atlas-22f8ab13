@@ -1,0 +1,389 @@
+---
+title: "Metrics Module"
+description: "Performance tracking, data collection, and reporting"
+---
+
+## Overview
+
+The Metrics module (`backend/src/metrics/`) collects, aggregates, and reports simulation performance data. It tracks wait times, throughput, queue lengths, and system utilization.
+
+## Module Structure
+
+```
+metrics/
+├── domain/
+│   ├── simulation_metrics.py    # Aggregate metrics
+│   ├── wait_time_record.py      # Individual wait time
+│   ├── throughput_record.py     # Throughput data
+│   └── ports/
+│       └── metrics_repository.py  # Port interface
+├── application/
+│   ├── record_customer_served.py   # Use case
+│   ├── record_customer_rejected.py # Use case
+│   └── get_simulation_report.py    # Use case
+└── infrastructure/
+    ├── in_memory_metrics_repository.py
+    ├── metrics_blueprint.py         # Flask routes
+    └── metrics_controller.py        # HTTP handlers
+```
+
+## Domain Model
+
+### SimulationMetrics
+
+Aggregate result of a simulation run:
+
+```python
+@dataclass
+class SimulationMetrics:
+    # Time metrics
+    total_simulation_time: float
+    
+    # Customer metrics
+    total_arrivals: int
+    total_served: int
+    total_rejected: int
+    
+    # Wait time statistics
+    avg_wait_time: float
+    max_wait_time: float
+    min_wait_time: float
+    
+    # Service time statistics
+    avg_service_time: float
+    
+    # Queue metrics
+    avg_queue_length: float
+    max_queue_length: int
+    
+    # Utilization
+    teller_utilization: float
+    
+    # Throughput
+    customers_per_hour: float
+```
+
+### WaitTimeRecord
+
+Individual customer wait time:
+
+```python
+@dataclass
+class WaitTimeRecord:
+    customer_id: str
+    arrival_time: float
+    service_start_time: float
+    wait_time: float  # service_start_time - arrival_time
+```
+
+### ThroughputRecord
+
+Customers served in a time interval:
+
+```python
+@dataclass
+class ThroughputRecord:
+    interval_start: float
+    interval_end: float
+    customers_served: int
+```
+
+## MetricsRepository Port
+
+**Interface** defined in `metrics/domain/ports/metrics_repository.py`:
+
+```python
+from abc import ABC, abstractmethod
+
+class MetricsRepository(ABC):
+    @abstractmethod
+    def record_customer_served(self, customer: Customer, clock: float) -> None:
+        pass
+    
+    @abstractmethod
+    def record_customer_rejected(self, customer: Customer, clock: float) -> None:
+        pass
+    
+    @abstractmethod
+    def get_simulation_report(self) -> SimulationMetrics:
+        pass
+    
+    @abstractmethod
+    def reset(self) -> None:
+        pass
+```
+
+## InMemoryMetricsRepository
+
+**Implementation** in `metrics/infrastructure/in_memory_metrics_repository.py`:
+
+```python
+class InMemoryMetricsRepository(MetricsRepository):
+    def __init__(self):
+        self.wait_times: List[WaitTimeRecord] = []
+        self.served_customers: List[Customer] = []
+        self.rejected_customers: List[Customer] = []
+        self.queue_length_samples: List[Tuple[float, int]] = []
+    
+    def record_customer_served(self, customer: Customer, clock: float) -> None:
+        wait_time = customer.service_start_time - customer.arrival_time
+        record = WaitTimeRecord(
+            customer_id=customer.id,
+            arrival_time=customer.arrival_time,
+            service_start_time=customer.service_start_time,
+            wait_time=wait_time
+        )
+        self.wait_times.append(record)
+        self.served_customers.append(customer)
+    
+    def record_customer_rejected(self, customer: Customer, clock: float) -> None:
+        self.rejected_customers.append(customer)
+    
+    def get_simulation_report(self) -> SimulationMetrics:
+        # Calculate aggregate statistics
+        return self._compute_metrics()
+```
+
+## Metrics Calculation
+
+### Average Wait Time
+
+```python
+if self.wait_times:
+    avg_wait = sum(r.wait_time for r in self.wait_times) / len(self.wait_times)
+else:
+    avg_wait = 0.0
+```
+
+### Max/Min Wait Time
+
+```python
+if self.wait_times:
+    max_wait = max(r.wait_time for r in self.wait_times)
+    min_wait = min(r.wait_time for r in self.wait_times)
+else:
+    max_wait = 0.0
+    min_wait = 0.0
+```
+
+### Average Queue Length
+
+Using **time-weighted average**:
+
+```python
+if self.queue_length_samples:
+    # samples = [(time, length), ...]
+    total_area = 0.0
+    for i in range(len(samples) - 1):
+        time_i, length_i = samples[i]
+        time_next, _ = samples[i + 1]
+        duration = time_next - time_i
+        total_area += length_i * duration
+    
+    total_time = samples[-1][0] - samples[0][0]
+    avg_queue_length = total_area / total_time if total_time > 0 else 0.0
+else:
+    avg_queue_length = 0.0
+```
+
+### Teller Utilization
+
+```python
+total_service_time = sum(c.service_time for c in served_customers)
+total_capacity = num_tellers * total_simulation_time
+utilization = total_service_time / total_capacity if total_capacity > 0 else 0.0
+```
+
+### Throughput
+
+```python
+customers_per_hour = (total_served / total_simulation_time) * 3600
+```
+
+## Collection Points
+
+### On Customer Arrival
+
+```python
+# In handle_arrival()
+queue_length = len(self.waiting_queue)
+metrics_repo.record_queue_sample(self.clock, queue_length)
+```
+
+### On Service Completion
+
+```python
+# In handle_service_end()
+served_customer = teller.end_service()
+metrics_repo.record_customer_served(served_customer, self.clock)
+```
+
+### On Queue Rejection
+
+```python
+# In handle_arrival()
+if len(self.waiting_queue) >= max_queue_capacity:
+    metrics_repo.record_customer_rejected(customer, self.clock)
+```
+
+## API Endpoints
+
+### GET /api/metrics/report
+
+Returns complete simulation metrics:
+
+```json
+{
+  "total_simulation_time": 28800.0,
+  "total_arrivals": 1440,
+  "total_served": 1420,
+  "total_rejected": 20,
+  "avg_wait_time": 125.3,
+  "max_wait_time": 845.2,
+  "min_wait_time": 0.0,
+  "avg_service_time": 300.0,
+  "avg_queue_length": 8.5,
+  "max_queue_length": 45,
+  "teller_utilization": 0.82,
+  "customers_per_hour": 177.5
+}
+```
+
+### GET /api/metrics/live
+
+Returns real-time metrics during simulation:
+
+```json
+{
+  "current_time": 14523.5,
+  "customers_served": 720,
+  "customers_waiting": 12,
+  "avg_wait_time": 130.2,
+  "current_throughput": 178.3
+}
+```
+
+## Frontend Integration
+
+The React frontend polls metrics for visualization:
+
+```javascript
+const fetchMetrics = async () => {
+  const response = await fetch('/api/metrics/report');
+  const metrics = await response.json();
+  setMetricsData(metrics);
+};
+
+useEffect(() => {
+  const interval = setInterval(fetchMetrics, 1000);
+  return () => clearInterval(interval);
+}, []);
+```
+
+## Visualization Components
+
+### WaitTimeChart
+
+Plots wait time distribution:
+
+```jsx
+<LineChart data={waitTimeSamples}>
+  <XAxis dataKey="time" label="Simulation Time (s)" />
+  <YAxis label="Wait Time (s)" />
+  <Line type="monotone" dataKey="wait_time" stroke="#2563eb" />
+</LineChart>
+```
+
+### ThroughputChart
+
+Shows customers served over time:
+
+```jsx
+<BarChart data={throughputData}>
+  <XAxis dataKey="interval" />
+  <YAxis label="Customers Served" />
+  <Bar dataKey="count" fill="#3b82f6" />
+</BarChart>
+```
+
+### QueueLengthChart
+
+Displays queue size evolution:
+
+```jsx
+<AreaChart data={queueSamples}>
+  <XAxis dataKey="time" />
+  <YAxis label="Queue Length" />
+  <Area type="stepAfter" dataKey="length" fill="#1e40af" />
+</AreaChart>
+```
+
+## Key Performance Indicators
+
+### Service Level
+
+Percentage of customers served within target wait time:
+
+```python
+target_wait = 300  # 5 minutes
+within_target = sum(1 for r in wait_times if r.wait_time <= target_wait)
+service_level = within_target / len(wait_times) if wait_times else 0.0
+```
+
+### Saturation
+
+Ratio of actual throughput to theoretical maximum:
+
+```python
+max_throughput = num_tellers * (3600 / avg_service_time)
+actual_throughput = customers_per_hour
+saturation = actual_throughput / max_throughput if max_throughput > 0 else 0.0
+```
+
+### Abandonment Rate
+
+```python
+abandonment_rate = total_rejected / total_arrivals if total_arrivals > 0 else 0.0
+```
+
+## Export Formats
+
+### CSV Export
+
+```python
+import csv
+
+def export_wait_times_csv(wait_times: List[WaitTimeRecord], filename: str):
+    with open(filename, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['customer_id', 'arrival_time', 'service_start_time', 'wait_time'])
+        for record in wait_times:
+            writer.writerow([record.customer_id, record.arrival_time, record.service_start_time, record.wait_time])
+```
+
+### JSON Export
+
+```python
+import json
+
+def export_metrics_json(metrics: SimulationMetrics, filename: str):
+    with open(filename, 'w') as f:
+        json.dump(metrics.__dict__, f, indent=2)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Metrics Dashboard" icon="chart-line" href="/features/metrics-dashboard">
+    Frontend visualization of metrics
+  </Card>
+  <Card title="Interpreting Metrics" icon="magnifying-glass-chart" href="/guides/interpreting-metrics">
+    How to analyze simulation results
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/metrics">
+    Complete metrics API documentation
+  </Card>
+  <Card title="Advanced Scenarios" icon="flask" href="/guides/advanced-scenarios">
+    Using metrics to optimize configurations
+  </Card>
+</CardGroup>

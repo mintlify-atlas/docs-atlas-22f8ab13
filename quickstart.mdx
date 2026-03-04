@@ -1,80 +1,291 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart Guide
+description: Run your first bank queue simulation in under 5 minutes
 ---
 
-## Get started in three steps
+# Quickstart
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+Get SimulationBank up and running in minutes. This guide assumes you have Python 3.x and Node.js installed.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+For detailed installation instructions, see the [Installation Guide](/installation).
 </Note>
+
+## Prerequisites
+
+<Steps>
+  <Step title="Check Python">
+    ```bash
+    python3 --version
+    # Should show Python 3.7+
+    ```
+  </Step>
+  
+  <Step title="Check Node.js">
+    ```bash
+    node --version
+    # Should show Node 16+
+    ```
+  </Step>
+</Steps>
+
+## Installation
+
+<Tabs>
+  <Tab title="Backend Setup">
+    <Steps>
+      <Step title="Navigate to backend directory">
+        ```bash
+        cd backend
+        ```
+      </Step>
+      
+      <Step title="Create virtual environment">
+        ```bash
+        python3 -m venv venv
+        source venv/bin/activate  # On Windows: venv\Scripts\activate
+        ```
+      </Step>
+      
+      <Step title="Install dependencies">
+        ```bash
+        pip install -r requirements.txt
+        ```
+        
+        This installs:
+        - `flask` - Web framework
+        - `flask-cors` - CORS support
+      </Step>
+      
+      <Step title="Start the Flask server">
+        ```bash
+        python app.py
+        ```
+        
+        Server will start at `http://localhost:5000`
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Frontend Setup">
+    <Steps>
+      <Step title="Navigate to frontend directory">
+        ```bash
+        cd frontend
+        ```
+      </Step>
+      
+      <Step title="Install dependencies">
+        ```bash
+        npm install
+        ```
+        
+        This installs React, Vite, and all frontend dependencies.
+      </Step>
+      
+      <Step title="Start the development server">
+        ```bash
+        npm run dev
+        ```
+        
+        Vite dev server will start at `http://localhost:5173`
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Running Your First Simulation
+
+<Steps>
+  <Step title="Open the application">
+    Navigate to `http://localhost:5173` in your browser.
+  </Step>
+  
+  <Step title="Configure simulation parameters">
+    You'll see configuration sliders for:
+    
+    - **Number of Tellers**: Start with `3`
+    - **Arrival Rate (λ)**: Try `1.0` customers per second
+    - **Service Mean (μ)**: Try `5.0` seconds per customer
+    - **Simulation Duration**: Set to `3600` seconds (1 hour)
+    
+    <Tip>
+    For your first run, use default values to see a balanced system.
+    </Tip>
+  </Step>
+  
+  <Step title="Start the simulation">
+    Click the **"Start Simulation"** button.
+    
+    You'll immediately see:
+    - Events being processed in the event queue
+    - Customers appearing in the priority queue
+    - Tellers transitioning between IDLE and BUSY states
+    - Metrics updating in real-time
+  </Step>
+  
+  <Step title="Observe the queue visualization">
+    The queue visualizer shows:
+    - **Red nodes**: High-priority customers (Priority 1)
+    - **Yellow nodes**: Medium-priority customers (Priority 2)  
+    - **Green nodes**: Low-priority customers (Priority 3)
+    
+    Notice how high-priority customers are served first, regardless of arrival order.
+  </Step>
+  
+  <Step title="Monitor metrics">
+    The metrics dashboard displays:
+    - **Wait Time Chart**: Average time customers spend waiting
+    - **Queue Length**: Number of customers waiting over time
+    - **Throughput**: Customers served per time unit
+    - **Saturation Report**: Teller utilization percentage
+  </Step>
+  
+  <Step title="Control the simulation">
+    Use the control buttons:
+    - **Pause**: Freeze the simulation at current clock time
+    - **Resume**: Continue from paused state
+    - **Stop**: End simulation and finalize metrics
+  </Step>
+</Steps>
+
+## Example Simulation Run
+
+Here's what a typical simulation looks like:
+
+```python
+# Configuration (backend/src/simulation/domain/simulation_config.py)
+config = SimulationConfig(
+    num_tellers=3,
+    arrival_config={
+        "arrival_rate": 1.0,           # 1 customer per second average
+        "arrival_dist": "exponential",  # Poisson process
+        "priority_weights": [0.1, 0.3, 0.6]  # 10% high, 30% medium, 60% low
+    },
+    service_config={
+        "service_mean": 5.0,            # 5 seconds average service time
+        "service_dist": "exponential",
+        "service_stddev": 1.0
+    },
+    max_simulation_time=3600.0,      # 1 hour simulation
+    max_queue_capacity=100
+)
+```
+
+### Expected Results
+
+With **λ = 1.0** (arrival rate) and **μ = 0.2** (service rate = 1/5.0), and **c = 3** tellers:
+
+- **Traffic Intensity (ρ)**: ρ = λ/(c×μ) = 1.0/(3×0.2) = 1.67
+- Since ρ > 1, the system is **overloaded** - queue will grow unbounded
+
+<Warning>
+This configuration will create a growing queue! Try increasing tellers to 6 or reducing arrival_rate to 0.5 for a stable system.
+</Warning>
+
+## Understanding the Output
+
+### Event Processing
+
+The simulation processes three event types:
+
+<CodeGroup>
+```python EventType.ARRIVAL
+# Customer crosses the door
+# - Generate customer with priority and service time
+# - Add to waiting queue (sorted by priority)
+# - Schedule next arrival
+# - Try to assign idle teller
+```
+
+```python EventType.SERVICE_START
+# Customer reaches teller window
+# - Teller status: IDLE → BUSY
+# - Customer status: WAITING → BEING_SERVED
+# - Record service_start_time
+# - Schedule SERVICE_END event
+```
+
+```python EventType.SERVICE_END
+# Transaction completes
+# - Customer status: BEING_SERVED → COMPLETED
+# - Teller status: BUSY → IDLE
+# - Increment sessions_served counter
+# - Try to assign next waiting customer
+```
+</CodeGroup>
+
+### Queue Dynamics
+
+Customers in the `waiting_queue` are sorted by:
+
+1. **Priority** (ascending): 1 (High) < 2 (Medium) < 3 (Low)
+2. **Arrival time** (ascending): FIFO within same priority
+
+```python
+# From simulation.py:118
+self.waiting_queue.sort(key=lambda c: (c.priority, c.arrival_time))
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Parameters" icon="sliders" href="/guides/configuring-parameters">
+    Learn how to tune simulation parameters
+  </Card>
+  
+  <Card title="Interpret Metrics" icon="chart-line" href="/guides/interpreting-metrics">
+    Understand wait times, throughput, and saturation
+  </Card>
+  
+  <Card title="Simulation Engine" icon="gear" href="/features/simulation-engine">
+    Deep dive into the DiscreteEventSimulation class
+  </Card>
+  
+  <Card title="Advanced Scenarios" icon="rocket" href="/guides/advanced-scenarios">
+    Explore high-load and optimization scenarios
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Backend won't start - Port 5000 already in use">
+    Kill the process using port 5000:
+    ```bash
+    # Linux/Mac
+    lsof -ti:5000 | xargs kill -9
+    
+    # Windows
+    netstat -ano | findstr :5000
+    taskkill /PID <PID> /F
+    ```
+  </Accordion>
+  
+  <Accordion title="Frontend can't connect to backend">
+    Verify:
+    1. Backend is running at `http://localhost:5000`
+    2. CORS is enabled (flask-cors installed)
+    3. Check browser console for CORS errors
+  </Accordion>
+  
+  <Accordion title="Queue grows indefinitely">
+    Your arrival rate is too high for the number of tellers!
+    
+    - Increase `num_tellers`
+    - Decrease `arrival_rate`
+    - Decrease `service_mean` (faster service)
+    
+    Rule: Ensure ρ = λ/(c×μ) < 1 for system stability
+  </Accordion>
+  
+  <Accordion title="No customers appearing">
+    Check your arrival_rate:
+    - Very low rates (< 0.1) mean long intervals between customers
+    - Increase to 1.0 or higher for visible activity
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+For a balanced system where queues remain manageable, aim for ρ ≈ 0.7-0.8 (70-80% teller utilization).
+</Tip>

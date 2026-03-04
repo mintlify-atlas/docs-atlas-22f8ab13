@@ -1,0 +1,575 @@
+---
+title: Running Simulations
+description: Step-by-step guide to starting, controlling, and stopping simulations
+---
+
+# Running Simulations
+
+This guide walks you through the complete workflow of running a bank queue simulation in SimulationBank.
+
+## Prerequisites
+
+Before starting:
+
+<Steps>
+  <Step title="Backend running">
+    Flask server active at `http://localhost:5000`
+    
+    ```bash
+    cd backend
+    source venv/bin/activate
+    python app.py
+    ```
+  </Step>
+  
+  <Step title="Frontend running">
+    Vite dev server active at `http://localhost:5173`
+    
+    ```bash
+    cd frontend
+    npm run dev
+    ```
+  </Step>
+  
+  <Step title="Browser open">
+    Navigate to `http://localhost:5173`
+  </Step>
+</Steps>
+
+## Simulation Workflow
+
+### Step 1: Configure Parameters
+
+The configuration panel provides sliders and inputs for all simulation parameters.
+
+<Tabs>
+  <Tab title="Basic Configuration">
+    **Number of Tellers**
+    - Slider range: 1-20
+    - Default: 3
+    - Recommendation: Start with 3-5 for first runs
+    
+    **Arrival Rate (λ)**
+    - Slider range: 0.1-5.0 customers/second
+    - Default: 1.0
+    - Recommendation: Start with 0.5-1.0
+    
+    **Service Mean Time**
+    - Slider range: 1-60 seconds
+    - Default: 5.0
+    - Recommendation: Start with 5-10 seconds
+    
+    **Simulation Duration**
+    - Slider range: 300-28800 seconds (5 min - 8 hours)
+    - Default: 3600 (1 hour)
+    - Recommendation: Start with 1800-3600 seconds
+  </Tab>
+  
+  <Tab title="Advanced Configuration">
+    **Arrival Distribution**
+    - Options: Exponential (Poisson), Fixed
+    - Default: Exponential
+    - Recommendation: Use Exponential for realism
+    
+    **Service Distribution**
+    - Options: Exponential, Normal, Constant
+    - Default: Exponential
+    - Recommendation: Use Exponential or Normal
+    
+    **Priority Weights**
+    - High: 0-100%
+    - Medium: 0-100%
+    - Low: 0-100%
+    - Default: [10%, 30%, 60%]
+    - Must sum to 100%
+    
+    **Queue Capacity**
+    - Range: 10-500
+    - Default: 100
+    - Note: Currently not enforced
+  </Tab>
+</Tabs>
+
+### Step 2: Validate Configuration
+
+Before starting, check the **stability indicator**:
+
+```
+┌────────────────────────────────────────────────┐
+│ Stability Check                                │
+│                                                │
+│ Traffic Intensity (ρ): 0.67                   │
+│ Status: ✓ Stable                              │
+│                                                │
+│ Expected behavior:                             │
+│ - Tellers 67% busy on average                  │
+│ - Moderate queue lengths                       │
+│ - Average wait time: ~2-3 seconds              │
+└────────────────────────────────────────────────┘
+```
+
+<AccordionGroup>
+  <Accordion title="✓ Stable (ρ < 0.8)">
+    **Good to go!**
+    
+    System will reach steady state with manageable queues.
+  </Accordion>
+  
+  <Accordion title="⚠️ Warning (0.8 ≤ ρ < 1.0)">
+    **Proceed with caution**
+    
+    System is stable but will experience:
+    - Long queues
+    - High wait times
+    - Tellers constantly busy
+    
+    Consider increasing `num_tellers` or decreasing `arrival_rate`.
+  </Accordion>
+  
+  <Accordion title="❌ Unstable (ρ ≥ 1.0)">
+    **Will not work!**
+    
+    Queue will grow unbounded. Simulation will fill `max_queue_capacity` and continue growing.
+    
+    **Fix:** Increase `num_tellers` or decrease `arrival_rate`.
+    
+    ```python
+    # Calculate required tellers
+    required = ceil(arrival_rate * service_mean / 0.75)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Step 3: Start the Simulation
+
+Click the **"Start Simulation"** button.
+
+**What happens:**
+
+<Steps>
+  <Step title="Configuration sent to backend">
+    ```javascript
+    POST /api/simulation/start
+    Body: { num_tellers: 3, arrival_config: {...}, ... }
+    ```
+  </Step>
+  
+  <Step title="Backend initializes simulation">
+    ```python
+    sim = DiscreteEventSimulation(simulation_id, config)
+    sim.initialize()  # Create tellers, schedule first arrival
+    ```
+  </Step>
+  
+  <Step title="Simulation starts running">
+    ```python
+    sim.run()  # Begin event processing loop
+    ```
+  </Step>
+  
+  <Step title="Frontend begins polling">
+    ```javascript
+    // Poll every 500ms
+    setInterval(() => {
+      fetchQueueState();
+      fetchMetrics();
+    }, 500);
+    ```
+  </Step>
+</Steps>
+
+**UI updates:**
+
+```
+┌────────────────────────────────────────────────┐
+│ Simulation Controls                            │
+│                                                │
+│ Status: ▶ RUNNING                             │
+│ Clock: 127.3 seconds                           │
+│                                                │
+│ [Pause] [Stop] [Export Metrics]                │
+└────────────────────────────────────────────────┘
+```
+
+### Step 4: Monitor Real-Time Updates
+
+#### Queue Visualizer
+
+Watch customers appear and disappear:
+
+```
+┌────────────────────────────────────────────────┐
+│ Waiting Queue: 5 customers                    │
+│                                                │
+│ [🔴 C1] [🔴 C2] [🟡 C3] [🟡 C4] [🟢 C5]       │
+│  P1     P1     P2     P2     P3             │
+│                                                │
+│ Legend: 🔴 High  🟡 Medium  🟢 Low            │
+└────────────────────────────────────────────────┘
+```
+
+**Observations:**
+- New customers fade in from the right
+- Customers are ordered by priority (red first)
+- When assigned to teller, they fade out
+
+#### Teller Status
+
+```
+┌────────────────────────────────────────────────┐
+│ Teller Status                                  │
+│                                                │
+│ T-1: 🔴 BUSY   | Serving C1 (15.2s left)    │
+│ T-2: 🔴 BUSY   | Serving C3 (8.7s left)     │
+│ T-3: 🟢 IDLE   | Waiting for customer        │
+└────────────────────────────────────────────────┘
+```
+
+#### Metrics Dashboard
+
+```
+┌────────────────────────────────────────────────┐
+│ Real-Time Metrics                              │
+│                                                │
+│ Avg Wait Time:      4.2s                       │
+│ Current Queue:      5 customers                │
+│ Throughput:         0.87 customers/s           │
+│ Teller Utilization: 72%                        │
+│ Total Served:       112 customers              │
+└────────────────────────────────────────────────┘
+```
+
+### Step 5: Control Simulation
+
+<Tabs>
+  <Tab title="Pause">
+    **Action:** Click "Pause" button
+    
+    **Effect:**
+    ```python
+    # Backend sets status to PAUSED
+    simulation.status = SimulationStatus.PAUSED
+    # Event loop exits
+    ```
+    
+    **State preserved:**
+    - Current clock time
+    - All queued events
+    - Customer positions
+    - Teller states
+    
+    **Use case:** Inspect current state without time advancing
+  </Tab>
+  
+  <Tab title="Resume">
+    **Action:** Click "Resume" button (after pausing)
+    
+    **Effect:**
+    ```python
+    # Backend resumes from paused state
+    simulation.status = SimulationStatus.RUNNING
+    # Event loop continues
+    ```
+    
+    **Behavior:** Simulation continues exactly where it left off
+  </Tab>
+  
+  <Tab title="Stop">
+    **Action:** Click "Stop" button
+    
+    **Effect:**
+    ```python
+    # Backend finalizes simulation
+    simulation.status = SimulationStatus.FINISHED
+    # Compute final metrics
+    ```
+    
+    **State changes:**
+    - Status → FINISHED
+    - Event processing stops
+    - Final metrics calculated
+    - Cannot be resumed
+    
+    **Use case:** End simulation early or after completion
+  </Tab>
+  
+  <Tab title="Reset">
+    **Action:** Click "Reset" button
+    
+    **Effect:**
+    ```python
+    # Create new simulation instance
+    simulation = DiscreteEventSimulation(new_id, config)
+    simulation.initialize()
+    ```
+    
+    **State cleared:**
+    - Clock → 0.0
+    - All queues emptied
+    - Metrics reset
+    - New simulation ID
+    
+    **Use case:** Start fresh with same or modified configuration
+  </Tab>
+</Tabs>
+
+### Step 6: Analyze Results
+
+Once simulation completes (clock reaches `max_simulation_time` or manually stopped):
+
+#### Final Metrics Summary
+
+```
+┌────────────────────────────────────────────────┐
+│ Simulation Complete                            │
+│                                                │
+│ Duration:           3600.0 seconds (1 hour)   │
+│ Total Arrivals:     3652 customers            │
+│ Total Served:       3587 customers            │
+│ Still Waiting:      65 customers              │
+│                                                │
+│ Performance:                                   │
+│ - Avg Wait Time:    5.3 seconds               │
+│ - Max Wait Time:    47.2 seconds              │
+│ - Avg Queue Length: 4.2 customers             │
+│ - Max Queue Length: 23 customers              │
+│ - Throughput:       0.996 customers/s         │
+│ - Teller Util:      83%                       │
+│                                                │
+│ [Export CSV] [Export JSON] [New Simulation]   │
+└────────────────────────────────────────────────┘
+```
+
+#### Export Options
+
+<Tabs>
+  <Tab title="CSV Export">
+    ```csv
+    metric,value,unit
+    simulation_id,sim-a3f8d2c1,
+    duration,3600.0,seconds
+    num_tellers,3,
+    arrival_rate,1.0,customers/second
+    service_mean,5.0,seconds
+    total_arrivals,3652,customers
+    total_served,3587,customers
+    avg_wait_time,5.3,seconds
+    max_wait_time,47.2,seconds
+    avg_queue_length,4.2,customers
+    max_queue_length,23,customers
+    throughput,0.996,customers/second
+    teller_utilization,0.83,ratio
+    ```
+  </Tab>
+  
+  <Tab title="JSON Export">
+    ```json
+    {
+      "simulation_id": "sim-a3f8d2c1",
+      "config": {
+        "num_tellers": 3,
+        "arrival_config": {
+          "arrival_rate": 1.0,
+          "arrival_dist": "exponential",
+          "priority_weights": [0.1, 0.3, 0.6]
+        },
+        "service_config": {
+          "service_mean": 5.0,
+          "service_dist": "exponential"
+        },
+        "max_simulation_time": 3600.0
+      },
+      "results": {
+        "duration": 3600.0,
+        "total_arrivals": 3652,
+        "total_served": 3587,
+        "metrics": {
+          "wait_time": {
+            "average": 5.3,
+            "min": 0.0,
+            "max": 47.2,
+            "by_priority": {
+              "high": 0.8,
+              "medium": 3.2,
+              "low": 8.9
+            }
+          },
+          "queue_length": {
+            "average": 4.2,
+            "max": 23
+          },
+          "throughput": 0.996,
+          "saturation": 0.83
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Common Workflows
+
+### Quick Test Run
+
+<Steps>
+  <Step title="Use defaults">
+    Accept default configuration (3 tellers, λ=1.0, μ=5.0)
+  </Step>
+  
+  <Step title="Short duration">
+    Set `max_simulation_time = 600` (10 minutes)
+  </Step>
+  
+  <Step title="Start">
+    Click "Start Simulation"
+  </Step>
+  
+  <Step title="Observe">
+    Watch for 1-2 minutes of real time (simulation will complete)
+  </Step>
+</Steps>
+
+### Stress Test
+
+<Steps>
+  <Step title="High load config">
+    - `arrival_rate = 3.0`
+    - `service_mean = 8.0`
+    - `num_tellers = 10` (intentionally insufficient)
+  </Step>
+  
+  <Step title="Start simulation">
+    System will be unstable (ρ = 3.0 / (10 * 1/8) = 2.4)
+  </Step>
+  
+  <Step title="Watch queue grow">
+    Queue length will increase steadily
+  </Step>
+  
+  <Step title="Stop early">
+    Click "Stop" before max_time to see accumulated queue
+  </Step>
+</Steps>
+
+### Optimization Experiment
+
+<Steps>
+  <Step title="Baseline run">
+    Run with initial configuration, export results
+  </Step>
+  
+  <Step title="Modify one parameter">
+    Example: Increase `num_tellers` from 3 to 4
+  </Step>
+  
+  <Step title="Run again">
+    Start new simulation with modified config
+  </Step>
+  
+  <Step title="Compare metrics">
+    Compare wait times, utilization, queue lengths
+  </Step>
+  
+  <Step title="Iterate">
+    Continue adjusting parameters to optimize
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Simulation won't start">
+    **Possible causes:**
+    1. Backend not running → Check `http://localhost:5000`
+    2. Invalid configuration → Check browser console for errors
+    3. Previous simulation still running → Stop it first
+    
+    **Fix:**
+    ```bash
+    # Restart backend
+    cd backend
+    python app.py
+    
+    # Check browser console (F12)
+    # Look for CORS or network errors
+    ```
+  </Accordion>
+  
+  <Accordion title="No customers appearing">
+    **Cause:** `arrival_rate` too low
+    
+    **Fix:** Increase `arrival_rate` to 1.0 or higher
+    
+    With `arrival_rate = 0.1`, customers arrive every ~10 seconds on average.
+  </Accordion>
+  
+  <Accordion title="Queue growing indefinitely">
+    **Cause:** ρ ≥ 1 (unstable configuration)
+    
+    **Fix:**
+    ```python
+    # Calculate required tellers
+    required_tellers = ceil(arrival_rate * service_mean / 0.75)
+    
+    # Example: λ=2.0, μ=5.0
+    required = ceil(2.0 * 5.0 / 0.75) = 14 tellers
+    ```
+  </Accordion>
+  
+  <Accordion title="Metrics not updating">
+    **Possible causes:**
+    1. Polling stopped → Refresh page
+    2. Simulation finished → Check status
+    3. Backend crashed → Check terminal logs
+    
+    **Fix:** Restart both backend and frontend
+  </Accordion>
+  
+  <Accordion title="Tellers always idle">
+    **Cause:** `arrival_rate` too low for number of tellers
+    
+    **Fix:** Reduce `num_tellers` or increase `arrival_rate`
+    
+    With 10 tellers and λ=0.5, tellers will be mostly idle.
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Start Simple" icon="seedling">
+    Begin with default configuration and short durations (10-30 minutes simulated time)
+  </Card>
+  
+  <Card title="Validate First" icon="check">
+    Always check stability (ρ < 1) before starting long simulations
+  </Card>
+  
+  <Card title="Monitor Actively" icon="eye">
+    Watch metrics during first few minutes to catch issues early
+  </Card>
+  
+  <Card title="Export Results" icon="download">
+    Save metrics after each run for comparison and analysis
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuring Parameters" icon="sliders" href="/guides/configuring-parameters">
+    Learn how to tune simulation parameters effectively
+  </Card>
+  
+  <Card title="Interpreting Metrics" icon="chart-line" href="/guides/interpreting-metrics">
+    Understand what the metrics tell you
+  </Card>
+  
+  <Card title="Advanced Scenarios" icon="rocket" href="/guides/advanced-scenarios">
+    Explore complex simulation patterns
+  </Card>
+  
+  <Card title="Metrics Dashboard" icon="chart-bar" href="/features/metrics-dashboard">
+    Deep dive into available metrics
+  </Card>
+</CardGroup>

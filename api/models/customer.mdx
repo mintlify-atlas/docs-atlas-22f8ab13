@@ -1,0 +1,213 @@
+---
+title: Customer
+description: Customer entity representing a bank visitor
+---
+
+## Overview
+
+The `Customer` entity represents an individual who arrives at the bank to complete a transaction. It tracks the complete lifecycle of a customer from arrival through service completion.
+
+## Schema
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the customer, generated as a truncated UUID (8 characters).
+  
+  **Example:** `"c7f3a1b2"`
+</ResponseField>
+
+<ResponseField name="arrival_time" type="float" required>
+  Simulation clock time (in seconds) when the customer arrived at the bank.
+  
+  **Example:** `3240.15` (54 minutes into simulation)
+</ResponseField>
+
+<ResponseField name="service_time" type="float" required>
+  Duration (in seconds) required to complete the customer's transaction at the teller window.
+  
+  **Note:** This is determined stochastically based on the `service_config` distribution when the customer is generated.
+  
+  **Example:** `4.2` (4.2 seconds of service required)
+</ResponseField>
+
+<ResponseField name="priority" type="integer" required>
+  Priority level assigned to the customer, affecting their position in the queue.
+  
+  **Values:**
+  - `1` - HIGH priority (elderly, pregnant, disabled)
+  - `2` - MEDIUM priority (preferred customers)
+  - `3` - LOW priority (regular customers)
+  
+  **Note:** Lower numbers indicate higher priority. Customers are served in priority order.
+</ResponseField>
+
+<ResponseField name="transaction_type" type="string" required>
+  Type of banking transaction the customer needs to perform.
+  
+  **Values:**
+  - `DEPOSIT` - Depositing money
+  - `WITHDRAWAL` - Withdrawing money
+  - `PAYMENT` - Making a payment
+  - `INQUIRY` - Account inquiry or information request
+  
+  **Example:** `"DEPOSIT"`
+</ResponseField>
+
+<ResponseField name="status" type="string" default="WAITING">
+  Current state of the customer in the system.
+  
+  **Values:**
+  - `WAITING` - Customer is in queue waiting for service
+  - `BEING_SERVED` - Customer is currently at a teller window
+  - `COMPLETED` - Customer has finished service and left
+  
+  **Example:** `"WAITING"`
+</ResponseField>
+
+<ResponseField name="service_start_time" type="float | null" default={null}>
+  Simulation clock time (in seconds) when the customer was called to a teller window. `null` if not yet served.
+  
+  **Example:** `3245.30`
+  
+  **Note:** The wait time can be calculated as: `service_start_time - arrival_time`
+</ResponseField>
+
+## Example Customer Object
+
+### Customer Waiting in Queue
+
+```json
+{
+  "id": "e9f5c4d2",
+  "arrival_time": 3245.12,
+  "service_time": 3.8,
+  "priority": 1,
+  "transaction_type": "PAYMENT",
+  "status": "WAITING",
+  "service_start_time": null
+}
+```
+
+### Customer Being Served
+
+```json
+{
+  "id": "c7f3a1b2",
+  "arrival_time": 3240.15,
+  "service_time": 4.2,
+  "priority": 2,
+  "transaction_type": "DEPOSIT",
+  "status": "BEING_SERVED",
+  "service_start_time": 3245.30
+}
+```
+
+### Customer Completed
+
+```json
+{
+  "id": "a1b2c3d4",
+  "arrival_time": 3200.50,
+  "service_time": 5.1,
+  "priority": 3,
+  "transaction_type": "WITHDRAWAL",
+  "status": "COMPLETED",
+  "service_start_time": 3220.80
+}
+```
+
+## Customer Lifecycle
+
+A customer progresses through the following states:
+
+```
+ARRIVAL → WAITING → BEING_SERVED → COMPLETED
+```
+
+### 1. Arrival
+
+- Customer is generated based on `arrival_config`
+- Assigned random `priority` based on `priority_weights`
+- Assigned random `transaction_type`
+- Service time determined by `service_config`
+- Status set to `WAITING`
+- Added to queue
+
+### 2. Waiting
+
+- Customer remains in queue ordered by:
+  1. Priority (ascending: 1, 2, 3)
+  2. Arrival time (FIFO within same priority)
+- `service_start_time` remains `null`
+
+### 3. Being Served
+
+- Customer is assigned to an available teller
+- Status changes to `BEING_SERVED`
+- `service_start_time` is recorded
+- Service completion event scheduled for `service_start_time + service_time`
+
+### 4. Completed
+
+- Service finishes at scheduled time
+- Status changes to `COMPLETED`
+- Customer leaves the system
+- Teller becomes available
+
+## Calculated Metrics
+
+From customer attributes, several metrics can be derived:
+
+<ParamField path="wait_time" type="calculated">
+  Time spent waiting in queue before service starts.
+  
+  **Formula:** `service_start_time - arrival_time`
+  
+  **Example:** `3245.30 - 3240.15 = 5.15 seconds`
+</ParamField>
+
+<ParamField path="total_time" type="calculated">
+  Total time spent in the system (wait + service).
+  
+  **Formula:** `(service_start_time + service_time) - arrival_time`
+  
+  **Example:** `(3245.30 + 4.2) - 3240.15 = 9.35 seconds`
+</ParamField>
+
+<ParamField path="system_departure_time" type="calculated">
+  Time when customer leaves the system.
+  
+  **Formula:** `service_start_time + service_time`
+  
+  **Example:** `3245.30 + 4.2 = 3249.50 seconds`
+</ParamField>
+
+## Priority Queue Ordering
+
+Customers in the waiting queue are sorted by:
+
+1. **Priority** (ascending) - Priority 1 customers are served before Priority 2 and 3
+2. **Arrival time** (ascending) - Within the same priority, earlier arrivals are served first (FIFO)
+
+### Example Queue Order
+
+```
+Position | ID       | Priority | Arrival Time | Transaction
+---------|----------|----------|--------------|------------
+1        | aaa111   | 1        | 3200.0       | WITHDRAWAL
+2        | bbb222   | 1        | 3205.5       | PAYMENT
+3        | ccc333   | 2        | 3190.0       | DEPOSIT
+4        | ddd444   | 2        | 3210.0       | INQUIRY
+5        | eee555   | 3        | 3180.0       | DEPOSIT
+```
+
+<Note>
+  Even though customer `eee555` arrived first (3180.0), they are served last due to LOW priority (3). Customer `ccc333` has MEDIUM priority (2) but is served after HIGH priority customers despite arriving earlier.
+</Note>
+
+## Usage in API Responses
+
+Customer objects appear in several API responses:
+
+- **[GET /api/simulation/state](/api/simulation#get-simulation-state)** - Returns `waiting_queue` array of customers
+- **[GET /api/tellers/state](/api/tellers#get-tellers-state)** - Returns `current_customer` for each busy teller
+- **Metrics endpoints** - Customer data aggregated into statistics

@@ -1,0 +1,558 @@
+---
+title: Simulation Configuration
+description: Complete reference for SimulationConfig parameters and settings
+---
+
+# Simulation Configuration
+
+The `SimulationConfig` dataclass defines all parameters needed to configure and run a simulation. Understanding these parameters is essential for creating realistic and meaningful scenarios.
+
+## SimulationConfig Class
+
+Defined in `backend/src/simulation/domain/simulation_config.py:6`:
+
+```python
+@dataclass
+class SimulationConfig:
+    """
+    Value Object: Agrupa todos los parámetros de entrada necesarios para configurar y lanzar la simulación.
+    Define la estructura básica del banco, sus tiempos operativos y el comportamiento estadístico de su entorno.
+    """
+    num_tellers: int = 3
+    
+    arrival_config: Dict[str, Any] = field(default_factory=lambda: {
+        "arrival_rate": 1.0,
+        "arrival_dist": "exponential",
+        "priority_weights": [0.1, 0.3, 0.6]
+    })
+    
+    service_config: Dict[str, Any] = field(default_factory=lambda: {
+        "service_mean": 5.0,
+        "service_dist": "exponential",
+        "service_stddev": 1.0
+    })
+    
+    max_simulation_time: float = 8.0 * 3600
+    max_queue_capacity: int = 100
+```
+
+## Core Parameters
+
+### num_tellers
+
+<ParamField path="num_tellers" type="int" default="3">
+  Number of teller windows (service points) available simultaneously.
+  
+  **Range:** 1-100 (practical upper limit)
+  
+  **Impact:**
+  - Higher values → more service capacity, shorter queues
+  - Lower values → potential congestion, longer waits
+</ParamField>
+
+```python
+# Examples
+config = SimulationConfig(num_tellers=2)   # Small branch
+config = SimulationConfig(num_tellers=6)   # Medium branch
+config = SimulationConfig(num_tellers=12)  # Large branch
+```
+
+**Sizing guidance:**
+
+```python
+# Rule of thumb: Ensure ρ < 1
+required_tellers = ceil(arrival_rate * service_mean / target_utilization)
+
+# Example: λ=2.0, μ=5.0, target=0.75
+required = ceil(2.0 * 5.0 / 0.75) = ceil(13.33) = 14 tellers
+```
+
+### max_simulation_time
+
+<ParamField path="max_simulation_time" type="float" default="28800.0">
+  Maximum simulated time in seconds. Simulation stops when virtual clock exceeds this value.
+  
+  **Default:** 8.0 * 3600 = 28,800 seconds = 8 hours
+  
+  **Common values:**
+  - 1 hour: 3600
+  - 4 hours: 14400
+  - 8 hours: 28800 (default)
+  - 24 hours: 86400
+</ParamField>
+
+```python
+# Examples
+config = SimulationConfig(
+    max_simulation_time=1800.0   # 30 minutes
+)
+
+config = SimulationConfig(
+    max_simulation_time=3600.0   # 1 hour
+)
+
+config = SimulationConfig(
+    max_simulation_time=8.0 * 3600  # 8 hours (default)
+)
+```
+
+<Note>
+Simulation time is virtual - an 8-hour simulation typically completes in seconds of real time.
+</Note>
+
+### max_queue_capacity
+
+<ParamField path="max_queue_capacity" type="int" default="100">
+  Maximum number of customers that can wait in queue.
+  
+  **Status:** Currently defined but not enforced in the code.
+  
+  **Future behavior:** When enforced, customers arriving to a full queue will "balk" (leave without service).
+</ParamField>
+
+```python
+config = SimulationConfig(
+    max_queue_capacity=50   # Smaller waiting area
+)
+```
+
+## Arrival Configuration
+
+### arrival_config Dictionary
+
+<ParamField path="arrival_config" type="Dict[str, Any]">
+  Nested dictionary controlling customer arrival patterns.
+</ParamField>
+
+#### arrival_rate (λ)
+
+<ParamField path="arrival_config.arrival_rate" type="float" default="1.0">
+  Average number of customers arriving per second (λ, lambda).
+  
+  **Range:** 0.01 - 10.0 (practical)
+  
+  **Interpretation:**
+  - 0.5 → 1 customer every 2 seconds
+  - 1.0 → 1 customer per second
+  - 2.0 → 2 customers per second
+</ParamField>
+
+```python
+# Low traffic
+config = SimulationConfig(
+    arrival_config={
+        "arrival_rate": 0.2  # 1 customer every 5 seconds
+    }
+)
+
+# Medium traffic
+config = SimulationConfig(
+    arrival_config={
+        "arrival_rate": 1.0  # 1 customer per second
+    }
+)
+
+# High traffic
+config = SimulationConfig(
+    arrival_config={
+        "arrival_rate": 3.0  # 3 customers per second
+    }
+)
+```
+
+**Conversion table:**
+
+| arrival_rate | Customers/second | Customers/minute | Inter-arrival time (avg) |
+|--------------|------------------|------------------|---------------------------|
+| 0.1          | 0.1              | 6                | 10 seconds               |
+| 0.5          | 0.5              | 30               | 2 seconds                |
+| 1.0          | 1.0              | 60               | 1 second                 |
+| 2.0          | 2.0              | 120              | 0.5 seconds              |
+| 5.0          | 5.0              | 300              | 0.2 seconds              |
+
+#### arrival_dist
+
+<ParamField path="arrival_config.arrival_dist" type="str" default="exponential">
+  Distribution type for inter-arrival times.
+  
+  **Options:**
+  - `"exponential"` - Poisson process (realistic, random)
+  - `"fixed"` - Deterministic intervals (unrealistic but useful for testing)
+</ParamField>
+
+<Tabs>
+  <Tab title="exponential (Recommended)">
+    ```python
+    arrival_config = {
+        "arrival_rate": 1.0,
+        "arrival_dist": "exponential"
+    }
+    ```
+    
+    **Behavior:**
+    - Random, memoryless arrivals
+    - Inter-arrival times follow exponential distribution
+    - Mean inter-arrival = 1/arrival_rate
+    - Models real-world customer behavior
+    
+    **Use for:** Realistic bank simulations
+  </Tab>
+  
+  <Tab title="fixed">
+    ```python
+    arrival_config = {
+        "arrival_rate": 1.0,
+        "arrival_dist": "fixed"
+    }
+    ```
+    
+    **Behavior:**
+    - Customers arrive exactly every 1/arrival_rate seconds
+    - No randomness
+    - Perfectly regular intervals
+    
+    **Use for:** Testing, debugging, theoretical analysis
+  </Tab>
+</Tabs>
+
+#### priority_weights
+
+<ParamField path="arrival_config.priority_weights" type="List[float]" default="[0.1, 0.3, 0.6]">
+  Probability weights for assigning priorities to arriving customers.
+  
+  **Format:** `[P(HIGH), P(MEDIUM), P(LOW)]`
+  
+  **Must sum to 1.0**
+</ParamField>
+
+```python
+# Default: 10% high, 30% medium, 60% low
+arrival_config = {
+    "priority_weights": [0.1, 0.3, 0.6]
+}
+
+# Elderly-heavy branch
+arrival_config = {
+    "priority_weights": [0.3, 0.4, 0.3]  # 30% high priority
+}
+
+# Mostly regular customers
+arrival_config = {
+    "priority_weights": [0.05, 0.15, 0.8]  # 80% low priority
+}
+
+# Equal distribution
+arrival_config = {
+    "priority_weights": [0.33, 0.33, 0.34]  # Roughly equal
+}
+```
+
+<Warning>
+Weights must sum to approximately 1.0. `[0.1, 0.3, 0.6]` sums to 1.0.
+</Warning>
+
+## Service Configuration
+
+### service_config Dictionary
+
+<ParamField path="service_config" type="Dict[str, Any]">
+  Nested dictionary controlling service time distributions.
+</ParamField>
+
+#### service_mean (μ)
+
+<ParamField path="service_config.service_mean" type="float" default="5.0">
+  Average time (in seconds) required to serve one customer.
+  
+  **Range:** 1.0 - 600.0 (practical)
+  
+  **Service rate:** μ = 1/service_mean customers per second per teller
+</ParamField>
+
+```python
+# Fast service (ATM-like)
+service_config = {
+    "service_mean": 2.0  # 2 seconds average
+}
+
+# Medium service (simple transactions)
+service_config = {
+    "service_mean": 5.0  # 5 seconds average (default)
+}
+
+# Slow service (complex transactions)
+service_config = {
+    "service_mean": 15.0  # 15 seconds average
+}
+
+# Very slow (loan applications)
+service_config = {
+    "service_mean": 120.0  # 2 minutes average
+}
+```
+
+**Impact on capacity:**
+
+```python
+# Each teller can serve:
+service_rate_per_teller = 1 / service_mean
+
+# Total system capacity:
+system_capacity = num_tellers * service_rate_per_teller
+
+# Example: 3 tellers, 5-second service
+system_capacity = 3 * (1/5) = 0.6 customers/second
+```
+
+#### service_dist
+
+<ParamField path="service_config.service_dist" type="str" default="exponential">
+  Distribution type for service times.
+  
+  **Options:**
+  - `"exponential"` - High variability (CV=1)
+  - `"normal"` - Moderate variability (uses service_stddev)
+  - `"constant"` - No variability (deterministic)
+</ParamField>
+
+<Tabs>
+  <Tab title="exponential (Default)">
+    ```python
+    service_config = {
+        "service_mean": 5.0,
+        "service_dist": "exponential"
+    }
+    ```
+    
+    **Characteristics:**
+    - Mean = 5.0 seconds
+    - StdDev = 5.0 seconds (CV = 1)
+    - Highly variable (some customers 0.5s, others 20s)
+    - Memoryless
+    
+    **Use for:** Realistic modeling of diverse transactions
+  </Tab>
+  
+  <Tab title="normal">
+    ```python
+    service_config = {
+        "service_mean": 5.0,
+        "service_dist": "normal",
+        "service_stddev": 1.0
+    }
+    ```
+    
+    **Characteristics:**
+    - Mean = 5.0 seconds
+    - StdDev = 1.0 second (CV = 0.2)
+    - Most customers 4-6 seconds (within 1σ)
+    - Minimum enforced at 1.0 second
+    
+    **Use for:** More predictable service times
+  </Tab>
+  
+  <Tab title="constant">
+    ```python
+    service_config = {
+        "service_mean": 5.0,
+        "service_dist": "constant"
+    }
+    ```
+    
+    **Characteristics:**
+    - Every customer takes exactly 5.0 seconds
+    - No variability (CV = 0)
+    - Perfectly predictable
+    
+    **Use for:** Testing, theoretical D/D/c models
+  </Tab>
+</Tabs>
+
+#### service_stddev
+
+<ParamField path="service_config.service_stddev" type="float" default="1.0">
+  Standard deviation for normal distribution.
+  
+  **Only used when** `service_dist="normal"`
+  
+  **Range:** 0.1 - service_mean
+</ParamField>
+
+```python
+# Low variability
+service_config = {
+    "service_mean": 10.0,
+    "service_dist": "normal",
+    "service_stddev": 1.0  # Most customers 9-11 seconds
+}
+
+# High variability
+service_config = {
+    "service_mean": 10.0,
+    "service_dist": "normal",
+    "service_stddev": 3.0  # Most customers 7-13 seconds
+}
+```
+
+## Complete Configuration Examples
+
+### Small Bank, Low Traffic
+
+```python
+config = SimulationConfig(
+    num_tellers=2,
+    arrival_config={
+        "arrival_rate": 0.3,              # 1 customer every ~3 seconds
+        "arrival_dist": "exponential",
+        "priority_weights": [0.15, 0.25, 0.6]
+    },
+    service_config={
+        "service_mean": 8.0,               # 8 seconds average
+        "service_dist": "normal",
+        "service_stddev": 2.0
+    },
+    max_simulation_time=3600.0,           # 1 hour
+    max_queue_capacity=50
+)
+
+# Traffic intensity:
+# ρ = 0.3 / (2 * 1/8) = 0.3 / 0.25 = 1.2 → UNSTABLE!
+# Need 3 tellers: ρ = 0.3 / (3 * 0.125) = 0.8 ✓
+```
+
+### Medium Bank, Peak Hours
+
+```python
+config = SimulationConfig(
+    num_tellers=6,
+    arrival_config={
+        "arrival_rate": 1.5,               # 1.5 customers/second
+        "arrival_dist": "exponential",
+        "priority_weights": [0.2, 0.3, 0.5]
+    },
+    service_config={
+        "service_mean": 6.0,
+        "service_dist": "exponential"
+    },
+    max_simulation_time=4 * 3600,         # 4 hours
+    max_queue_capacity=100
+)
+
+# Traffic intensity:
+# ρ = 1.5 / (6 * 1/6) = 1.5 / 1.0 = 1.5 → UNSTABLE!
+# Need 10 tellers: ρ = 1.5 / (10 * 1/6) = 0.9 ✓
+```
+
+### Large Bank, Optimized
+
+```python
+config = SimulationConfig(
+    num_tellers=15,
+    arrival_config={
+        "arrival_rate": 2.0,
+        "arrival_dist": "exponential",
+        "priority_weights": [0.1, 0.3, 0.6]
+    },
+    service_config={
+        "service_mean": 10.0,
+        "service_dist": "normal",
+        "service_stddev": 2.5
+    },
+    max_simulation_time=8 * 3600,
+    max_queue_capacity=200
+)
+
+# Traffic intensity:
+# ρ = 2.0 / (15 * 1/10) = 2.0 / 1.5 = 1.33 → UNSTABLE!
+# Need 27 tellers: ρ = 2.0 / (27 * 0.1) = 0.74 ✓
+```
+
+## Validation Rules
+
+### Stability Check
+
+```python
+def validate_stability(config):
+    """
+    Check if configuration will result in stable system.
+    """
+    arrival_rate = config.arrival_config["arrival_rate"]
+    service_mean = config.service_config["service_mean"]
+    num_tellers = config.num_tellers
+    
+    service_rate = 1.0 / service_mean
+    rho = arrival_rate / (num_tellers * service_rate)
+    
+    if rho >= 1.0:
+        return False, f"Unstable: ρ={rho:.2f} ≥ 1.0. Increase tellers or reduce arrival rate."
+    elif rho > 0.9:
+        return True, f"Warning: High utilization ρ={rho:.2f}. Expect long queues."
+    else:
+        return True, f"Stable: ρ={rho:.2f}"
+```
+
+### Priority Weights Validation
+
+```python
+def validate_priority_weights(weights):
+    if len(weights) != 3:
+        raise ValueError("priority_weights must have exactly 3 values")
+    
+    total = sum(weights)
+    if abs(total - 1.0) > 0.01:
+        raise ValueError(f"priority_weights must sum to 1.0 (got {total})")
+    
+    if any(w < 0 or w > 1 for w in weights):
+        raise ValueError("All priority_weights must be in [0, 1]")
+```
+
+## Configuration via API
+
+### Frontend to Backend
+
+```javascript
+// Frontend sends configuration
+const startSimulation = async (config) => {
+  const response = await fetch('http://localhost:5000/api/simulation/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      num_tellers: 3,
+      arrival_config: {
+        arrival_rate: 1.0,
+        arrival_dist: 'exponential',
+        priority_weights: [0.1, 0.3, 0.6]
+      },
+      service_config: {
+        service_mean: 5.0,
+        service_dist: 'exponential',
+        service_stddev: 1.0
+      },
+      max_simulation_time: 3600.0,
+      max_queue_capacity: 100
+    })
+  });
+  
+  return await response.json();
+};
+```
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Configuring Parameters" icon="wrench" href="/guides/configuring-parameters">
+    Practical guide to tuning configuration
+  </Card>
+  
+  <Card title="Poisson Arrivals" icon="chart-line" href="/concepts/poisson-arrivals">
+    Understanding arrival_rate and distributions
+  </Card>
+  
+  <Card title="Simulation Engine" icon="gear" href="/features/simulation-engine">
+    How configuration is used in the engine
+  </Card>
+  
+  <Card title="Advanced Scenarios" icon="rocket" href="/guides/advanced-scenarios">
+    Complex configuration examples
+  </Card>
+</CardGroup>

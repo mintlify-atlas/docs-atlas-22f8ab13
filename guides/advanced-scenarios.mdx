@@ -1,0 +1,579 @@
+---
+title: Advanced Scenarios
+description: High-load simulations, capacity optimization, priority distribution impacts, and complex modeling patterns
+---
+
+# Advanced Scenarios
+
+This guide explores complex simulation scenarios including stress testing, optimization experiments, and advanced modeling techniques.
+
+## High-Load Stress Testing
+
+### Scenario: Black Friday Bank Rush
+
+**Objective:** Simulate extreme customer volume to test system breaking point.
+
+```python
+config = SimulationConfig(
+    num_tellers=15,
+    arrival_config={
+        "arrival_rate": 5.0,              # 300 customers/minute!
+        "arrival_dist": "exponential",
+        "priority_weights": [0.1, 0.3, 0.6]
+    },
+    service_config={
+        "service_mean": 8.0,              # Slower due to complex transactions
+        "service_dist": "exponential"
+    },
+    max_simulation_time=7200.0,           # 2 hours
+    max_queue_capacity=500
+)
+
+# Analysis:
+# ρ = 5.0 / (15 * 1/8) = 5.0 / 1.875 = 2.67 ❌ VERY UNSTABLE
+```
+
+**Expected outcomes:**
+- Queue grows to hundreds of customers
+- Wait times exceed 10+ minutes
+- System completely overwhelmed
+
+**Purpose:**
+- Identify failure modes
+- Determine absolute capacity limits
+- Plan for worst-case scenarios
+
+**Optimization:**
+
+<Steps>
+  <Step title="Calculate minimum tellers">
+    ```python
+    min_tellers = ceil(arrival_rate * service_mean)
+                = ceil(5.0 * 8.0) = 40 tellers
+    ```
+  </Step>
+  
+  <Step title="Add safety margin">
+    ```python
+    # For ρ = 0.75
+    recommended = ceil(40 / 0.75) = 54 tellers
+    ```
+  </Step>
+  
+  <Step title="Run with adjusted config">
+    ```python
+    config = SimulationConfig(
+        num_tellers=54,  # Increased from 15
+        arrival_config={"arrival_rate": 5.0},
+        service_config={"service_mean": 8.0}
+    )
+    # ρ = 5.0 / (54 * 0.125) = 0.74 ✓
+    ```
+  </Step>
+  
+  <Step title="Analyze results">
+    - Average wait time should be < 30 seconds
+    - Queue length should stabilize < 20
+    - Teller utilization ~75%
+  </Step>
+</Steps>
+
+## Capacity Optimization
+
+### Scenario: Minimize Tellers While Meeting SLA
+
+**Service Level Agreement (SLA):**
+- Average wait time < 60 seconds
+- 95% of customers wait < 120 seconds
+- Queue never exceeds 30 customers
+
+**Given constraints:**
+```python
+arrival_rate = 1.5  # Fixed demand
+service_mean = 6.0  # Fixed transaction complexity
+```
+
+**Optimization process:**
+
+<Tabs>
+  <Tab title="Step 1: Theoretical Minimum">
+    ```python
+    # Minimum for stability (ρ < 1)
+    min_tellers = ceil(arrival_rate * service_mean)
+                = ceil(1.5 * 6.0) = 9 tellers
+    
+    # This gives ρ = 1.0 (unstable)
+    ```
+  </Tab>
+  
+  <Tab title="Step 2: Binary Search">
+    ```python
+    # Try different teller counts
+    results = []
+    
+    for num_tellers in range(9, 20):
+        config = SimulationConfig(
+            num_tellers=num_tellers,
+            arrival_config={"arrival_rate": 1.5},
+            service_config={"service_mean": 6.0},
+            max_simulation_time=7200.0
+        )
+        
+        sim = run_simulation(config)
+        results.append({
+            "tellers": num_tellers,
+            "avg_wait": sim.metrics.wait_time.average,
+            "p95_wait": sim.metrics.wait_time.percentile_95,
+            "max_queue": sim.metrics.queue_length.max,
+            "utilization": sim.metrics.saturation.system
+        })
+    ```
+  </Tab>
+  
+  <Tab title="Step 3: Analyze Results">
+    ```
+    Tellers | Avg Wait | P95 Wait | Max Queue | Util | Meets SLA?
+    --------|----------|----------|-----------|------|------------
+    9       | 450.2    | 1200+    | 150+      | 1.00 | ❌
+    10      | 85.3     | 245.7    | 42        | 0.90 | ❌ (P95 > 120)
+    11      | 42.1     | 118.5    | 28        | 0.82 | ✅
+    12      | 28.5     | 82.3     | 19        | 0.75 | ✅
+    13      | 21.2     | 61.8     | 15        | 0.69 | ✅
+    ```
+    
+    **Optimal:** 11 tellers (minimum that meets all SLA requirements)
+  </Tab>
+  
+  <Tab title="Step 4: Validate">
+    ```python
+    # Run multiple replications with 11 tellers
+    for i in range(10):  # 10 independent runs
+        sim = run_simulation(config_11_tellers, seed=i)
+        validate_sla(sim.metrics)
+    
+    # All runs should meet SLA
+    # If not, add buffer (use 12 tellers)
+    ```
+  </Tab>
+</Tabs>
+
+## Priority Distribution Impact
+
+### Scenario: Elderly Population Impact Study
+
+**Question:** How does increasing elderly population (high-priority) affect overall wait times?
+
+**Experimental design:**
+
+```python
+# Base configuration (constant across experiments)
+base_config = {
+    "num_tellers": 5,
+    "arrival_rate": 1.0,
+    "service_mean": 5.0,
+    "max_simulation_time": 3600.0
+}
+
+# Vary priority_weights
+experiments = [
+    {"name": "Current",    "weights": [0.10, 0.30, 0.60]},
+    {"name": "10% Elderly", "weights": [0.20, 0.30, 0.50]},
+    {"name": "20% Elderly", "weights": [0.30, 0.30, 0.40]},
+    {"name": "30% Elderly", "weights": [0.40, 0.30, 0.30]},
+    {"name": "40% Elderly", "weights": [0.50, 0.25, 0.25]}
+]
+
+results = []
+for exp in experiments:
+    config = SimulationConfig(
+        **base_config,
+        arrival_config={
+            "arrival_rate": 1.0,
+            "priority_weights": exp["weights"]
+        }
+    )
+    sim = run_simulation(config)
+    results.append({
+        "scenario": exp["name"],
+        "high_wait": sim.metrics.wait_by_priority.high,
+        "medium_wait": sim.metrics.wait_by_priority.medium,
+        "low_wait": sim.metrics.wait_by_priority.low,
+        "avg_wait": sim.metrics.wait_time.average
+    })
+```
+
+**Expected results:**
+
+```
+Scenario       | High Wait | Med Wait | Low Wait | Avg Wait
+---------------|-----------|----------|----------|----------
+Current (10%)  | 0.8s      | 3.5s     | 8.2s     | 5.3s
+10% Elderly    | 1.2s      | 4.8s     | 12.5s    | 7.1s
+20% Elderly    | 1.8s      | 6.5s     | 18.3s    | 9.8s
+30% Elderly    | 2.5s      | 9.2s     | 28.7s    | 13.5s
+40% Elderly    | 3.8s      | 14.1s    | 45.2s    | 19.2s
+```
+
+**Insights:**
+
+<CardGroup cols={2}>
+  <Card title="High-Priority Impact" icon="star">
+    As high-priority % increases, even high-priority customers wait longer (more competition)
+  </Card>
+  
+  <Card title="Low-Priority Suffering" icon="user">
+    Low-priority wait times grow exponentially (starvation risk at 40%)
+  </Card>
+  
+  <Card title="System Average" icon="chart-line">
+    Overall average wait increases linearly with high-priority percentage
+  </Card>
+  
+  <Card title="Tipping Point" icon="triangle-exclamation">
+    At 40% elderly, system becomes problematic for regular customers
+  </Card>
+</CardGroup>
+
+**Mitigation strategies:**
+
+```python
+# Option 1: Add tellers for high-elderly scenarios
+if priority_weights[0] > 0.3:  # > 30% high priority
+    num_tellers = base_tellers + 2
+
+# Option 2: Reserve tellers for low-priority
+# (Requires code modification)
+reserved_tellers = 2  # Always available for low-priority
+
+# Option 3: Time limits on priorities
+# If low-priority customer waits > 5 minutes, promote to medium
+```
+
+## Time-Varying Arrival Rates
+
+### Scenario: Lunch Rush Modeling
+
+**Realistic pattern:** Arrival rate varies throughout the day.
+
+```python
+# Conceptual implementation (requires custom generator)
+class TimeVaryingArrivalGenerator:
+    def __init__(self):
+        # Define arrival rate schedule (customers/minute)
+        self.schedule = [
+            (0,    3600,  0.5),   # 0-1hr:  30/min (morning)
+            (3600, 7200,  1.0),   # 1-2hr:  60/min (building)
+            (7200, 10800, 2.5),   # 2-3hr: 150/min (lunch rush!)
+            (10800, 14400, 1.0),  # 3-4hr:  60/min (afternoon)
+            (14400, 18000, 0.5)   # 4-5hr:  30/min (late)
+        ]
+    
+    def get_arrival_rate(self, current_time):
+        for start, end, rate in self.schedule:
+            if start <= current_time < end:
+                return rate
+        return 0.5  # Default
+    
+    def get_next_arrival_interval(self, current_time):
+        rate = self.get_arrival_rate(current_time)
+        return random.expovariate(rate)
+```
+
+**Configuration strategy:**
+
+```python
+# Peak hour (lunch) drives teller count
+peak_arrival_rate = 2.5
+service_mean = 6.0
+
+# Size for peak
+required_tellers = ceil(2.5 * 6.0 / 0.75) = 20 tellers
+
+# During off-peak, utilization will be low
+off_peak_rate = 0.5
+off_peak_utilization = 0.5 / (20 * 1/6) = 0.15  # Only 15%!
+```
+
+**Optimization:**
+- **Staff scheduling:** Rotate tellers in/out during day
+- **Break planning:** Schedule breaks during off-peak
+- **Shift overlap:** Extra staff during transition to peak
+
+## Multi-Transaction-Type Modeling
+
+### Scenario: Fast vs. Complex Transactions
+
+**Reality:** Not all transactions take the same time.
+
+```python
+# Conceptual enhancement to Customer generation
+class TransactionTypeGenerator:
+    def __init__(self):
+        self.transaction_types = {
+            "BALANCE_CHECK": {
+                "probability": 0.20,
+                "service_mean": 2.0,
+                "service_dist": "constant"
+            },
+            "DEPOSIT": {
+                "probability": 0.35,
+                "service_mean": 4.0,
+                "service_dist": "normal",
+                "service_stddev": 1.0
+            },
+            "WITHDRAWAL": {
+                "probability": 0.30,
+                "service_mean": 5.0,
+                "service_dist": "normal",
+                "service_stddev": 1.5
+            },
+            "LOAN_INQUIRY": {
+                "probability": 0.10,
+                "service_mean": 30.0,
+                "service_dist": "exponential"
+            },
+            "ACCOUNT_OPENING": {
+                "probability": 0.05,
+                "service_mean": 120.0,
+                "service_dist": "normal",
+                "service_stddev": 20.0
+            }
+        }
+    
+    def get_transaction(self):
+        types = list(self.transaction_types.keys())
+        probs = [self.transaction_types[t]["probability"] for t in types]
+        return random.choices(types, weights=probs)[0]
+    
+    def get_service_time(self, transaction_type):
+        config = self.transaction_types[transaction_type]
+        if config["service_dist"] == "constant":
+            return config["service_mean"]
+        elif config["service_dist"] == "normal":
+            time = random.gauss(config["service_mean"], config["service_stddev"])
+            return max(1.0, time)
+        elif config["service_dist"] == "exponential":
+            return random.expovariate(1.0 / config["service_mean"])
+```
+
+**Weighted average service time:**
+
+```python
+avg_service_time = sum(
+    prob * mean 
+    for prob, mean in [
+        (0.20, 2.0),
+        (0.35, 4.0),
+        (0.30, 5.0),
+        (0.10, 30.0),
+        (0.05, 120.0)
+    ]
+) = 0.4 + 1.4 + 1.5 + 3.0 + 6.0 = 12.3 seconds
+
+# Use this for capacity planning
+service_rate = 1 / 12.3 = 0.081 customers/second per teller
+```
+
+## Teller Specialization
+
+### Scenario: Dedicated Loan Officers
+
+**Model:** Some tellers only handle specific transaction types.
+
+```python
+# Conceptual implementation
+class SpecializedTellerPool:
+    def __init__(self):
+        self.general_tellers = [Teller(f"G-{i}") for i in range(8)]
+        self.loan_officers = [Teller(f"L-{i}") for i in range(2)]
+    
+    def assign_customer(self, customer):
+        if customer.transaction_type == "LOAN_INQUIRY":
+            # Must use loan officer
+            idle_officers = [t for t in self.loan_officers if t.status == "IDLE"]
+            if idle_officers:
+                return idle_officers[0]
+            else:
+                # Add to specialized queue
+                self.loan_queue.append(customer)
+                return None
+        else:
+            # Use any general teller
+            idle_general = [t for t in self.general_tellers if t.status == "IDLE"]
+            if idle_general:
+                return idle_general[0]
+            else:
+                self.general_queue.append(customer)
+                return None
+```
+
+**Impact:**
+- Loan customers may wait longer (only 2 officers vs 8 tellers)
+- General customers unaffected by complex loan transactions
+- Overall system efficiency depends on transaction mix
+
+## Balking and Reneging
+
+### Scenario: Customers Leave if Queue Too Long
+
+**Balking:** Customer sees long queue and doesn't join.
+
+```python
+def handle_arrival(self):
+    # Generate customer
+    customer = generate_customer()
+    
+    # Check queue length (balking)
+    if len(self.waiting_queue) > self.config.max_queue_capacity:
+        # Customer leaves (balks)
+        self.metrics.balked_customers += 1
+        return
+    
+    # Check wait time estimate (intelligent balking)
+    estimated_wait = estimate_wait_time()
+    if estimated_wait > customer.patience_threshold:
+        self.metrics.balked_customers += 1
+        return
+    
+    # Customer joins queue
+    self.waiting_queue.append(customer)
+```
+
+**Reneging:** Customer waits but gives up before service.
+
+```python
+class Customer:
+    def __init__(self, ...):
+        # ...
+        self.patience = random.expovariate(1.0 / 300.0)  # Avg 5 min patience
+        self.renege_time = arrival_time + self.patience
+
+# In simulation loop
+if customer.renege_time <= current_time and customer.status == "WAITING":
+    # Customer reneges (leaves queue)
+    self.waiting_queue.remove(customer)
+    self.metrics.reneged_customers += 1
+```
+
+**Metrics impact:**
+
+```python
+total_arrivals = 1000
+balked = 50        # Didn't join
+reneged = 30       # Joined but left
+served = 920       # Actually served
+
+service_rate = served / total_arrivals = 0.92  # 92% served
+loss_rate = (balked + reneged) / total_arrivals = 0.08  # 8% lost
+```
+
+## Simulation Experiments Design
+
+### Factorial Experiment: 2 Factors, 3 Levels Each
+
+**Factors:**
+1. Number of tellers: [3, 5, 7]
+2. Service mean: [4.0, 6.0, 8.0]
+
+**Total combinations:** 3 × 3 = 9 scenarios
+
+```python
+import itertools
+import pandas as pd
+
+tellers = [3, 5, 7]
+service_means = [4.0, 6.0, 8.0]
+
+results = []
+
+for num_tellers, service_mean in itertools.product(tellers, service_means):
+    config = SimulationConfig(
+        num_tellers=num_tellers,
+        arrival_config={"arrival_rate": 1.0},
+        service_config={"service_mean": service_mean}
+    )
+    
+    # Run 5 replications per scenario
+    for rep in range(5):
+        sim = run_simulation(config, seed=rep)
+        results.append({
+            "tellers": num_tellers,
+            "service_mean": service_mean,
+            "replication": rep,
+            "avg_wait": sim.metrics.wait_time.average,
+            "utilization": sim.metrics.saturation.system
+        })
+
+df = pd.DataFrame(results)
+
+# Analyze
+print(df.groupby(["tellers", "service_mean"]).agg({
+    "avg_wait": ["mean", "std"],
+    "utilization": ["mean", "std"]
+}))
+```
+
+**Sample output:**
+
+```
+                      avg_wait             utilization
+                          mean     std        mean     std
+tellers service_mean
+3       4.0              3.2    0.4         0.83    0.02
+        6.0             12.5    2.1         1.25    0.03  # UNSTABLE!
+        8.0             85.7   15.3         1.67    0.05  # VERY UNSTABLE!
+5       4.0              1.8    0.2         0.50    0.01
+        6.0              3.5    0.5         0.75    0.02
+        8.0              8.9    1.2         1.00    0.02  # MARGINAL
+7       4.0              1.5    0.1         0.36    0.01
+        6.0              2.1    0.3         0.54    0.01
+        8.0              4.2    0.6         0.71    0.02
+```
+
+## Warm-Up Period Analysis
+
+### Problem: Initial Transient Bias
+
+Simulation starts with **empty queue** and **all tellers idle** - not representative of steady-state.
+
+```python
+# Metrics including warm-up period
+avg_wait_with_warmup = 8.3 seconds
+
+# Metrics after warm-up (discarding first 30 minutes)
+avg_wait_steady_state = 12.5 seconds
+```
+
+**Solution:** Discard initial observations.
+
+```python
+config = SimulationConfig(
+    max_simulation_time=7200.0  # 2 hours total
+)
+
+warmup_time = 1800.0  # Discard first 30 minutes
+
+# Only collect metrics after warmup_time
+if current_time >= warmup_time:
+    record_metrics(customer)
+```
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Configuring Parameters" icon="sliders" href="/guides/configuring-parameters">
+    Parameter tuning techniques
+  </Card>
+  
+  <Card title="Interpreting Metrics" icon="chart-line" href="/guides/interpreting-metrics">
+    Understanding simulation outputs
+  </Card>
+  
+  <Card title="Simulation Engine" icon="gear" href="/features/simulation-engine">
+    Extending the core engine
+  </Card>
+  
+  <Card title="Priority Queuing" icon="layer-group" href="/concepts/priority-queuing">
+    Advanced queue management
+  </Card>
+</CardGroup>

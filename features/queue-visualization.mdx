@@ -1,0 +1,501 @@
+---
+title: Queue Visualization
+description: Real-time visual representation of the priority queue with color-coded customers
+---
+
+# Queue Visualization
+
+SimulationBank provides real-time visualization of the waiting queue, displaying customers with color-coded priority levels and showing queue dynamics as the simulation runs.
+
+## Overview
+
+The queue visualizer is a React component that:
+- Displays customers waiting for service
+- Color-codes by priority (High/Medium/Low)
+- Updates in real-time as customers arrive and are served
+- Shows customer attributes (ID, priority, arrival time)
+- Visualizes queue ordering (priority-first, then FIFO)
+
+## Component Architecture
+
+```
+┌────────────────────────────────────────────────┐
+│              QueueVisualizer                        │
+│                                                        │
+│  ┌──────────────────────────────────────────┐  │
+│  │          PriorityLegend                     │  │
+│  │  ● High (Red)                             │  │
+│  │  ● Medium (Yellow)                       │  │
+│  │  ● Low (Green)                           │  │
+│  └──────────────────────────────────────────┘  │
+│                                                        │
+│  ┌──────────────────────────────────────────┐  │
+│  │           Queue Display                   │  │
+│  │                                            │  │
+│  │   ┌─────────┐   ┌─────────┐          │  │
+│  │   │  QNode  │   │  QNode  │  ...     │  │
+│  │   │  (Red)  │   │ (Yellow)│          │  │
+│  │   └─────────┘   └─────────┘          │  │
+│  │   Priority 1    Priority 2               │  │
+│  └──────────────────────────────────────────┘  │
+│                                                        │
+│  Data source: useQueueState() hook                     │
+│  Updates via: /api/queue/state polling                 │
+└────────────────────────────────────────────────┘
+```
+
+## Priority Color Coding
+
+### Color Scheme
+
+```javascript
+// Conceptual color mapping
+const PRIORITY_COLORS = {
+  1: '#FF4444',  // HIGH priority - Red
+  2: '#FFBB33',  // MEDIUM priority - Yellow/Amber
+  3: '#00C851'   // LOW priority - Green
+};
+```
+
+<CardGroup cols={3}>
+  <Card title="Priority 1: HIGH" icon="star" color="#FF4444">
+    **Red nodes**
+    
+    Elderly, pregnant, VIP customers
+    
+    Served first regardless of arrival time
+  </Card>
+  
+  <Card title="Priority 2: MEDIUM" icon="circle" color="#FFBB33">
+    **Yellow/Amber nodes**
+    
+    Preferred customers, business accounts
+    
+    Served after all HIGH priority
+  </Card>
+  
+  <Card title="Priority 3: LOW" icon="user" color="#00C851">
+    **Green nodes**
+    
+    Regular customers
+    
+    Served last, but FIFO among themselves
+  </Card>
+</CardGroup>
+
+## QueueNode Component
+
+### Customer Display
+
+Each node shows:
+
+```jsx
+// Conceptual QueueNode structure
+<div className="queue-node" style={{ backgroundColor: PRIORITY_COLORS[customer.priority] }}>
+  <div className="customer-id">{customer.id}</div>
+  <div className="priority-badge">P{customer.priority}</div>
+  <div className="arrival-time">{customer.arrival_time.toFixed(1)}s</div>
+  <div className="transaction-type">{customer.transaction_type}</div>
+</div>
+```
+
+**Example rendering:**
+
+```
+┌────────────────────┐
+│     C1a3f8        │  (Red background)
+│       P1          │
+│    Arrived: 12.5s │
+│    WITHDRAWAL     │
+└────────────────────┘
+```
+
+## Data Flow
+
+### Backend to Frontend
+
+<Steps>
+  <Step title="Simulation updates queue">
+    `DiscreteEventSimulation.waiting_queue` changes on ARRIVAL/SERVICE_START events
+  </Step>
+  
+  <Step title="API exposes queue state">
+    ```python
+    @app.route('/api/queue/state', methods=['GET'])
+    def get_queue_state():
+        return jsonify({
+            "waiting_queue": [
+                {
+                    "id": c.id,
+                    "priority": c.priority,
+                    "arrival_time": c.arrival_time,
+                    "transaction_type": c.transaction_type,
+                    "status": c.status
+                }
+                for c in current_simulation.waiting_queue
+            ]
+        })
+    ```
+  </Step>
+  
+  <Step title="Frontend polls API">
+    ```javascript
+    // useQueueState.js (conceptual)
+    const useQueueState = () => {
+      const [queue, setQueue] = useState([]);
+      
+      useEffect(() => {
+        const fetchQueue = async () => {
+          const response = await fetch('http://localhost:5000/api/queue/state');
+          const data = await response.json();
+          setQueue(data.waiting_queue);
+        };
+        
+        const interval = setInterval(fetchQueue, 500);  // Poll every 500ms
+        return () => clearInterval(interval);
+      }, []);
+      
+      return queue;
+    };
+    ```
+  </Step>
+  
+  <Step title="QueueVisualizer renders">
+    React re-renders on state change, displaying updated queue
+  </Step>
+</Steps>
+
+## Queue Dynamics Visualization
+
+### Arrival Animation
+
+When a customer arrives:
+
+```jsx
+// Conceptual animation
+const QueueNode = ({ customer, isNew }) => {
+  return (
+    <div 
+      className={`queue-node ${isNew ? 'fade-in' : ''}`}
+      style={{ backgroundColor: PRIORITY_COLORS[customer.priority] }}
+    >
+      {/* Customer info */}
+    </div>
+  );
+};
+```
+
+**CSS animation:**
+
+```css
+@keyframes fade-in {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.queue-node.fade-in {
+  animation: fade-in 0.3s ease-in;
+}
+```
+
+### Service Assignment Animation
+
+When a customer is assigned to a teller:
+
+```jsx
+// Node fades out or moves to "Being Served" section
+@keyframes slide-out {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-30px); }
+}
+
+.queue-node.being-served {
+  animation: slide-out 0.3s ease-out;
+}
+```
+
+## Priority Queue Ordering
+
+### Visual Example
+
+```
+Waiting Queue (left to right = front to back):
+
+┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
+│  C1   │  │  C2   │  │  C3   │  │  C4   │  │  C5   │
+│  P1   │  │  P1   │  │  P2   │  │  P2   │  │  P3   │
+│ t=5.0 │  │ t=8.2 │  │ t=3.1 │  │ t=6.5 │  │ t=2.0 │
+└────────┘  └────────┘  └────────┘  └────────┘  └────────┘
+  RED      RED     YELLOW    YELLOW    GREEN
+
+Service order:
+1. C1 (P1, arrived 5.0) - First Priority 1
+2. C2 (P1, arrived 8.2) - Second Priority 1 (later arrival)
+3. C3 (P2, arrived 3.1) - First Priority 2 (despite arriving before C1!)
+4. C4 (P2, arrived 6.5) - Second Priority 2
+5. C5 (P3, arrived 2.0) - Only Priority 3 (despite arriving FIRST!)
+```
+
+<Note>
+Notice C5 arrived at t=2.0 (earliest), but will be served LAST due to low priority!
+</Note>
+
+## Queue Length Display
+
+### Real-time Counter
+
+```jsx
+// QueueVisualizer.jsx (conceptual)
+const QueueVisualizer = () => {
+  const queue = useQueueState();
+  
+  return (
+    <div className="queue-visualizer">
+      <header>
+        <h2>Waiting Queue</h2>
+        <div className="queue-length">
+          <span className="count">{queue.length}</span>
+          <span className="label">customers waiting</span>
+        </div>
+      </header>
+      
+      <PriorityLegend />
+      
+      <div className="queue-nodes">
+        {queue.map(customer => (
+          <QueueNode key={customer.id} customer={customer} />
+        ))}
+      </div>
+      
+      {queue.length === 0 && (
+        <div className="empty-queue">No customers waiting</div>
+      )}
+    </div>
+  );
+};
+```
+
+## Priority Distribution Indicator
+
+### Visual Breakdown
+
+```jsx
+// Show distribution of priorities in current queue
+const PriorityDistribution = ({ queue }) => {
+  const counts = {
+    1: queue.filter(c => c.priority === 1).length,
+    2: queue.filter(c => c.priority === 2).length,
+    3: queue.filter(c => c.priority === 3).length
+  };
+  
+  return (
+    <div className="priority-distribution">
+      <div className="priority-bar">
+        <div style={{ width: `${counts[1] / queue.length * 100}%`, backgroundColor: '#FF4444' }} />
+        <div style={{ width: `${counts[2] / queue.length * 100}%`, backgroundColor: '#FFBB33' }} />
+        <div style={{ width: `${counts[3] / queue.length * 100}%`, backgroundColor: '#00C851' }} />
+      </div>
+      <div className="counts">
+        <span>High: {counts[1]}</span>
+        <span>Medium: {counts[2]}</span>
+        <span>Low: {counts[3]}</span>
+      </div>
+    </div>
+  );
+};
+```
+
+## Interactive Features
+
+### Hover Details
+
+```jsx
+// Show full customer details on hover
+const QueueNode = ({ customer }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+  
+  return (
+    <div 
+      className="queue-node"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      {/* Node content */}
+      
+      {showTooltip && (
+        <div className="tooltip">
+          <p>ID: {customer.id}</p>
+          <p>Priority: {customer.priority}</p>
+          <p>Arrival: {customer.arrival_time.toFixed(2)}s</p>
+          <p>Service Time: {customer.service_time.toFixed(2)}s</p>
+          <p>Transaction: {customer.transaction_type}</p>
+          <p>Status: {customer.status}</p>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+## Performance Optimization
+
+### Virtualization for Large Queues
+
+For queues with 100+ customers:
+
+```jsx
+import { FixedSizeList } from 'react-window';
+
+const QueueVisualizer = () => {
+  const queue = useQueueState();
+  
+  const Row = ({ index, style }) => (
+    <div style={style}>
+      <QueueNode customer={queue[index]} />
+    </div>
+  );
+  
+  return (
+    <FixedSizeList
+      height={600}
+      itemCount={queue.length}
+      itemSize={80}
+      width="100%"
+    >
+      {Row}
+    </FixedSizeList>
+  );
+};
+```
+
+### Debounced Updates
+
+```javascript
+// Avoid excessive re-renders
+const useQueueState = () => {
+  const [queue, setQueue] = useState([]);
+  const [debouncedQueue, setDebouncedQueue] = useState([]);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQueue(queue);
+    }, 100);  // Update UI at most every 100ms
+    
+    return () => clearTimeout(timer);
+  }, [queue]);
+  
+  return debouncedQueue;
+};
+```
+
+## Accessibility
+
+### Screen Reader Support
+
+```jsx
+const QueueNode = ({ customer, position }) => {
+  return (
+    <div 
+      className="queue-node"
+      role="listitem"
+      aria-label={`Customer ${customer.id}, priority ${customer.priority}, position ${position + 1}`}
+    >
+      {/* Visual content */}
+    </div>
+  );
+};
+
+const QueueVisualizer = () => {
+  const queue = useQueueState();
+  
+  return (
+    <div 
+      className="queue-visualizer"
+      role="list"
+      aria-label={`Waiting queue with ${queue.length} customers`}
+    >
+      {queue.map((customer, index) => (
+        <QueueNode key={customer.id} customer={customer} position={index} />
+      ))}
+    </div>
+  );
+};
+```
+
+## Example States
+
+### Empty Queue
+
+```jsx
+// No customers waiting
+<div className="queue-visualizer">
+  <div className="empty-state">
+    <p>No customers in queue</p>
+    <p>All tellers idle</p>
+  </div>
+</div>
+```
+
+### Growing Queue (System Overload)
+
+```
+┌────────────────────────────────────────────────┐
+│ Waiting Queue: 47 customers                      │
+│                                                  │
+│ ⚠️ WARNING: Queue growing rapidly                │
+│                                                  │
+│ [C1 P1] [C2 P1] [C3 P1] [C4 P2] [C5 P2] ...     │
+│                                                  │
+│ Distribution: High: 5  Medium: 15  Low: 27       │
+└────────────────────────────────────────────────┘
+```
+
+### Balanced System
+
+```
+┌────────────────────────────────────────────────┐
+│ Waiting Queue: 3 customers                       │
+│                                                  │
+│ [C1 P2] [C2 P3] [C3 P3]                          │
+│                                                  │
+│ Distribution: High: 0  Medium: 1  Low: 2         │
+└────────────────────────────────────────────────┘
+```
+
+## Configuration Options
+
+### Customizing Display
+
+```javascript
+// Example configuration
+const QUEUE_VIZ_CONFIG = {
+  maxVisibleNodes: 20,        // Show only first 20 nodes
+  nodeWidth: 100,             // pixels
+  nodeHeight: 80,             // pixels
+  animationDuration: 300,     // ms
+  updateInterval: 500,        // ms (polling frequency)
+  showTooltips: true,
+  showDistribution: true,
+  colorScheme: 'default'      // or 'colorblind-safe'
+};
+```
+
+## Further Reading
+
+<CardGroup cols={2}>
+  <Card title="Priority Queuing" icon="layer-group" href="/concepts/priority-queuing">
+    Understanding the queue sorting algorithm
+  </Card>
+  
+  <Card title="Metrics Dashboard" icon="chart-bar" href="/features/metrics-dashboard">
+    Queue length charts and analytics
+  </Card>
+  
+  <Card title="Running Simulations" icon="play" href="/guides/running-simulations">
+    How to start and control visualization
+  </Card>
+  
+  <Card title="Interpreting Metrics" icon="chart-line" href="/guides/interpreting-metrics">
+    Understanding queue behavior patterns
+  </Card>
+</CardGroup>

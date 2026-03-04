@@ -1,0 +1,461 @@
+---
+title: Installation Guide
+description: Detailed setup instructions for SimulationBank backend and frontend
+---
+
+# Installation
+
+Complete installation guide for setting up SimulationBank's Flask backend and React frontend.
+
+## System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Backend Requirements">
+    - Python 3.7 or higher
+    - pip (Python package manager)
+    - Virtual environment (recommended)
+  </Card>
+  
+  <Card title="Frontend Requirements">
+    - Node.js 16 or higher
+    - npm 7+ or yarn
+    - Modern web browser
+  </Card>
+</CardGroup>
+
+## Project Structure
+
+```
+SimulationBank/
+├── backend/
+│   ├── src/
+│   │   ├── simulation/
+│   │   │   └── domain/
+│   │   │       ├── simulation.py              # Main DES engine
+│   │   │       ├── simulation_config.py       # Configuration dataclass
+│   │   │       ├── simulation_event.py        # Event types
+│   │   │       └── simulation_status.py       # Status enum
+│   │   ├── customer/
+│   │   │   ├── domain/
+│   │   │   │   ├── customer.py                # Customer entity
+│   │   │   │   └── priority.py                # Priority enum
+│   │   │   └── infrastructure/
+│   │   │       └── poisson_customer_generator.py
+│   │   ├── teller/
+│   │   │   └── domain/
+│   │   │       ├── teller.py                  # Teller entity
+│   │   │       └── teller_status.py           # IDLE/BUSY enum
+│   │   └── queue/
+│   │       └── domain/
+│   │           └── priority_queue.py          # Heap-based queue
+│   ├── requirements.txt
+│   └── app.py                                 # Flask entry point
+│
+├── frontend/
+│   ├── src/
+│   │   ├── queue/
+│   │   │   ├── components/
+│   │   │   │   ├── QueueVisualizer.jsx        # Queue display
+│   │   │   │   ├── QueueNode.jsx              # Customer node
+│   │   │   │   └── PriorityLegend.jsx         # Color legend
+│   │   │   ├── hooks/
+│   │   │   │   └── useQueueState.js           # Queue state hook
+│   │   │   └── services/
+│   │   │       └── queue.api.js               # API calls
+│   │   ├── metrics/
+│   │   │   ├── components/
+│   │   │   │   ├── MetricsDashboard.jsx       # Main dashboard
+│   │   │   │   ├── WaitTimeChart.jsx          # Wait time viz
+│   │   │   │   ├── ThroughputChart.jsx        # Throughput viz
+│   │   │   │   ├── QueueLengthChart.jsx       # Queue size viz
+│   │   │   │   └── SaturationReport.jsx       # Utilization
+│   │   │   ├── hooks/
+│   │   │   │   └── useMetrics.js              # Metrics hook
+│   │   │   └── services/
+│   │   │       └── metrics.api.js             # API calls
+│   │   ├── shared/
+│   │   │   └── components/                    # Reusable UI
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── package.json
+│   └── vite.config.js
+```
+
+## Backend Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/your-org/SimulationBank.git
+    cd SimulationBank/backend
+    ```
+  </Step>
+  
+  <Step title="Create a virtual environment">
+    <Tabs>
+      <Tab title="Linux/macOS">
+        ```bash
+        python3 -m venv venv
+        source venv/bin/activate
+        ```
+      </Tab>
+      
+      <Tab title="Windows (CMD)">
+        ```cmd
+        python -m venv venv
+        venv\Scripts\activate.bat
+        ```
+      </Tab>
+      
+      <Tab title="Windows (PowerShell)">
+        ```powershell
+        python -m venv venv
+        venv\Scripts\Activate.ps1
+        ```
+        
+        <Note>
+        If you get an execution policy error, run:
+        ```powershell
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+        ```
+        </Note>
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Install dependencies">
+    ```bash
+    pip install -r requirements.txt
+    ```
+    
+    This installs:
+    
+    ```txt requirements.txt
+    flask
+    flask-cors
+    ```
+    
+    **Package details:**
+    - **flask**: Lightweight WSGI web framework for the REST API
+    - **flask-cors**: Cross-Origin Resource Sharing support for frontend communication
+  </Step>
+  
+  <Step title="Verify installation">
+    ```bash
+    python -c "import flask; print(f'Flask {flask.__version__}')"
+    ```
+    
+    Expected output: `Flask 2.x.x` or higher
+  </Step>
+  
+  <Step title="Run the backend server">
+    ```bash
+    python app.py
+    ```
+    
+    You should see:
+    ```
+    * Running on http://127.0.0.1:5000
+    * Debug mode: on
+    ```
+  </Step>
+</Steps>
+
+### Backend Configuration
+
+The `SimulationConfig` dataclass (backend/src/simulation/domain/simulation_config.py:6) defines all configurable parameters:
+
+```python
+@dataclass
+class SimulationConfig:
+    num_tellers: int = 3  # Number of teller windows
+    
+    arrival_config: Dict[str, Any] = field(default_factory=lambda: {
+        "arrival_rate": 1.0,              # λ (lambda): customers per second
+        "arrival_dist": "exponential",    # Distribution type
+        "priority_weights": [0.1, 0.3, 0.6]  # [HIGH, MEDIUM, LOW] probabilities
+    })
+    
+    service_config: Dict[str, Any] = field(default_factory=lambda: {
+        "service_mean": 5.0,              # μ (mu): average service time (seconds)
+        "service_dist": "exponential",    # Distribution type
+        "service_stddev": 1.0             # Only used for normal distribution
+    })
+    
+    max_simulation_time: float = 8.0 * 3600  # 8 hours in seconds
+    max_queue_capacity: int = 100             # Maximum waiting queue size
+```
+
+### Backend API Endpoints
+
+Once running, the backend exposes these endpoints:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/simulation/start` | POST | Initialize and start a new simulation |
+| `/api/simulation/pause` | POST | Pause the running simulation |
+| `/api/simulation/resume` | POST | Resume a paused simulation |
+| `/api/simulation/stop` | POST | Stop and finalize the simulation |
+| `/api/simulation/status` | GET | Get current simulation state |
+| `/api/metrics/current` | GET | Get real-time metrics |
+| `/api/queue/state` | GET | Get current queue contents |
+
+## Frontend Installation
+
+<Steps>
+  <Step title="Navigate to frontend directory">
+    ```bash
+    cd frontend
+    ```
+  </Step>
+  
+  <Step title="Install Node.js dependencies">
+    <Tabs>
+      <Tab title="npm">
+        ```bash
+        npm install
+        ```
+      </Tab>
+      
+      <Tab title="yarn">
+        ```bash
+        yarn install
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Verify package.json dependencies">
+    Key dependencies from `frontend/package.json`:
+    
+    ```json
+    {
+      "dependencies": {
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0"
+      },
+      "devDependencies": {
+        "@vitejs/plugin-react-swc": "^4.2.2",
+        "vite": "^7.3.1",
+        "eslint": "^9.39.1"
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Configure API base URL (optional)">
+    If your backend runs on a different port, create a `.env` file:
+    
+    ```bash .env
+    VITE_API_BASE_URL=http://localhost:5000
+    ```
+  </Step>
+  
+  <Step title="Start the development server">
+    <Tabs>
+      <Tab title="npm">
+        ```bash
+        npm run dev
+        ```
+      </Tab>
+      
+      <Tab title="yarn">
+        ```bash
+        yarn dev
+        ```
+      </Tab>
+    </Tabs>
+    
+    Vite will start the server at `http://localhost:5173`
+  </Step>
+  
+  <Step title="Open in browser">
+    Navigate to `http://localhost:5173`
+    
+    You should see the SimulationBank interface with:
+    - Configuration sliders
+    - Start/Pause/Stop controls
+    - Queue visualizer
+    - Metrics dashboard
+  </Step>
+</Steps>
+
+### Frontend Build
+
+For production deployment:
+
+<Tabs>
+  <Tab title="npm">
+    ```bash
+    npm run build
+    ```
+  </Tab>
+  
+  <Tab title="yarn">
+    ```bash
+    yarn build
+    ```
+  </Tab>
+</Tabs>
+
+This creates optimized static files in `frontend/dist/` that can be served by any static file server.
+
+## Development Workflow
+
+### Running Both Servers Simultaneously
+
+<Tabs>
+  <Tab title="Terminal 1 - Backend">
+    ```bash
+    cd backend
+    source venv/bin/activate  # or venv\Scripts\activate on Windows
+    python app.py
+    ```
+  </Tab>
+  
+  <Tab title="Terminal 2 - Frontend">
+    ```bash
+    cd frontend
+    npm run dev
+    ```
+  </Tab>
+</Tabs>
+
+### Hot Reloading
+
+- **Backend**: Flask runs in debug mode by default, auto-reloading on code changes
+- **Frontend**: Vite provides instant HMR (Hot Module Replacement) for React components
+
+## Docker Installation (Alternative)
+
+<Note>
+Docker support coming soon. This section will include docker-compose configuration for one-command deployment.
+</Note>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Python version mismatch">
+    SimulationBank requires Python 3.7+. Check your version:
+    
+    ```bash
+    python3 --version
+    ```
+    
+    If you have multiple Python versions, use:
+    ```bash
+    python3.9 -m venv venv  # Use specific version
+    ```
+  </Accordion>
+  
+  <Accordion title="pip install fails with permission error">
+    Use a virtual environment (recommended) or install with `--user`:
+    
+    ```bash
+    pip install --user -r requirements.txt
+    ```
+  </Accordion>
+  
+  <Accordion title="npm install fails with EACCES">
+    Fix npm permissions:
+    
+    ```bash
+    # Option 1: Use nvm (recommended)
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+    nvm install node
+    
+    # Option 2: Fix global directory
+    mkdir ~/.npm-global
+    npm config set prefix '~/.npm-global'
+    export PATH=~/.npm-global/bin:$PATH
+    ```
+  </Accordion>
+  
+  <Accordion title="Port 5000 already in use">
+    macOS Monterey and later uses port 5000 for AirPlay. Either:
+    
+    **Option 1:** Disable AirPlay Receiver in System Preferences
+    
+    **Option 2:** Change Flask port in `app.py`:
+    ```python
+    if __name__ == '__main__':
+        app.run(debug=True, port=5001)  # Use different port
+    ```
+  </Accordion>
+  
+  <Accordion title="CORS errors in browser console">
+    Ensure `flask-cors` is installed:
+    
+    ```bash
+    pip install flask-cors
+    ```
+    
+    Verify it's initialized in `app.py`:
+    ```python
+    from flask_cors import CORS
+    app = Flask(__name__)
+    CORS(app)  # Enable CORS for all routes
+    ```
+  </Accordion>
+  
+  <Accordion title="Module import errors in backend">
+    Ensure you're in the correct directory and virtual environment:
+    
+    ```bash
+    cd backend
+    source venv/bin/activate
+    python -c "import src.simulation.domain.simulation"
+    ```
+    
+    If imports fail, check that `src/` is in your Python path.
+  </Accordion>
+</AccordionGroup>
+
+## Verification
+
+To verify your installation is complete:
+
+<Steps>
+  <Step title="Backend health check">
+    ```bash
+    curl http://localhost:5000/api/simulation/status
+    ```
+    
+    Should return JSON with simulation status.
+  </Step>
+  
+  <Step title="Frontend loads">
+    Open `http://localhost:5173` - you should see the SimulationBank UI.
+  </Step>
+  
+  <Step title="Run a test simulation">
+    1. Click "Start Simulation" with default parameters
+    2. Verify queue visualizer shows customers
+    3. Check that metrics update in real-time
+    4. Click "Stop" to end the simulation
+  </Step>
+</Steps>
+
+<Tip>
+If all steps complete successfully, you're ready to explore SimulationBank! Check out the [Quickstart Guide](/quickstart) next.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first simulation
+  </Card>
+  
+  <Card title="Configuration" icon="sliders" href="/features/configuration">
+    Learn about all configuration options
+  </Card>
+  
+  <Card title="Simulation Engine" icon="gear" href="/features/simulation-engine">
+    Understand the core DES engine
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore backend API endpoints
+  </Card>
+</CardGroup>

@@ -1,0 +1,298 @@
+---
+title: Teller
+description: Teller entity representing a bank service window
+---
+
+## Overview
+
+The `Teller` entity represents a service window (cashier position) in the bank that serves customers one at a time. Tellers are resources in the discrete event simulation that can be in different operational states.
+
+## Schema
+
+<ResponseField name="id" type="string" required>
+  Unique alphanumeric identifier for the teller window.
+  
+  **Format:** `"T-{number}"` where number is 1-indexed
+  
+  **Examples:** `"T-1"`, `"T-2"`, `"T-3"`
+</ResponseField>
+
+<ResponseField name="status" type="string" default="IDLE">
+  Current operational state of the teller.
+  
+  **Values:**
+  - `IDLE` - Teller is available and waiting for the next customer
+  - `BUSY` - Teller is currently serving a customer
+  - `BROKEN` - Teller is out of service (future enhancement for failure simulation)
+  
+  **Example:** `"BUSY"`
+</ResponseField>
+
+<ResponseField name="current_customer" type="object | null" default={null}>
+  Reference to the [Customer](/api/models/customer) currently being served at this teller window.
+  
+  **Value:** Customer object when `status` is `BUSY`, `null` when `IDLE` or `BROKEN`
+</ResponseField>
+
+<ResponseField name="sessions_served" type="integer" default={0}>
+  Cumulative counter of how many customers have been successfully served by this teller since simulation start.
+  
+  **Note:** Incremented each time a customer completes service at this teller.
+  
+  **Example:** `45` means this teller has served 45 customers
+</ResponseField>
+
+## Example Teller Objects
+
+### Idle Teller
+
+```json
+{
+  "id": "T-2",
+  "status": "IDLE",
+  "current_customer": null,
+  "sessions_served": 42
+}
+```
+
+### Busy Teller
+
+```json
+{
+  "id": "T-1",
+  "status": "BUSY",
+  "current_customer": {
+    "id": "c7f3a1b2",
+    "arrival_time": 3240.15,
+    "service_time": 4.2,
+    "priority": 2,
+    "transaction_type": "DEPOSIT",
+    "status": "BEING_SERVED",
+    "service_start_time": 3245.30
+  },
+  "sessions_served": 45
+}
+```
+
+### Broken Teller (Future)
+
+```json
+{
+  "id": "T-4",
+  "status": "BROKEN",
+  "current_customer": null,
+  "sessions_served": 28
+}
+```
+
+## Teller Lifecycle
+
+Tellers transition through states based on customer availability and service completion:
+
+```
+IDLE → BUSY → IDLE → BUSY → ...
+  ↓
+BROKEN (future)
+```
+
+### State Transitions
+
+#### IDLE → BUSY
+
+**Trigger:** Customer assigned from waiting queue
+
+**Actions:**
+1. Status changes to `BUSY`
+2. Customer is assigned to `current_customer`
+3. Customer's status changes to `BEING_SERVED`
+4. Customer's `service_start_time` is recorded
+5. Service completion event scheduled
+
+```json
+// Before
+{
+  "id": "T-1",
+  "status": "IDLE",
+  "current_customer": null,
+  "sessions_served": 44
+}
+
+// After
+{
+  "id": "T-1",
+  "status": "BUSY",
+  "current_customer": { ... },
+  "sessions_served": 44
+}
+```
+
+#### BUSY → IDLE
+
+**Trigger:** Service completion event fires
+
+**Actions:**
+1. Customer's status changes to `COMPLETED`
+2. `current_customer` set to `null`
+3. Status changes to `IDLE`
+4. `sessions_served` incremented by 1
+5. System attempts to assign next customer from queue
+
+```json
+// Before
+{
+  "id": "T-1",
+  "status": "BUSY",
+  "current_customer": { ... },
+  "sessions_served": 44
+}
+
+// After
+{
+  "id": "T-1",
+  "status": "IDLE",
+  "current_customer": null,
+  "sessions_served": 45
+}
+```
+
+## Teller Operations
+
+### Start Service
+
+When a teller begins serving a customer:
+
+```python
+def start_service(customer: Customer, current_time: float):
+    """
+    Initiates service for a specific customer.
+    - Changes teller status to BUSY
+    - Assigns current_customer reference
+    - Updates customer status to BEING_SERVED
+    - Records service_start_time on customer
+    """
+```
+
+**Parameters:**
+- `customer` - The customer to serve
+- `current_time` - Current simulation clock time
+
+**Side Effects:**
+- Teller: `status` → `BUSY`, `current_customer` → customer
+- Customer: `status` → `BEING_SERVED`, `service_start_time` → current_time
+
+### End Service
+
+When a teller completes serving a customer:
+
+```python
+def end_service() -> Customer:
+    """
+    Completes service for the current customer.
+    - Changes customer status to COMPLETED
+    - Releases teller to IDLE status
+    - Increments sessions_served counter
+    - Returns the served customer
+    """
+```
+
+**Returns:** The customer who was just served
+
+**Side Effects:**
+- Customer: `status` → `COMPLETED`
+- Teller: `status` → `IDLE`, `current_customer` → `null`, `sessions_served` += 1
+
+## Teller Utilization
+
+Teller utilization is a key performance metric calculated as:
+
+```
+Utilization = (Time Busy) / (Total Simulation Time)
+```
+
+**Example Calculation:**
+
+```json
+{
+  "teller_id": "T-1",
+  "total_simulation_time": 14400,  // 4 hours
+  "time_busy": 12816,              // 3.56 hours
+  "utilization": 0.89              // 89%
+}
+```
+
+<Note>
+  High utilization (&gt;90%) may indicate the need for more tellers. Low utilization (&lt;50%) may indicate over-staffing.
+</Note>
+
+## Performance Metrics
+
+Per-teller metrics available in simulation reports:
+
+<ResponseField name="sessions_served" type="integer">
+  Total customers served by this teller.
+</ResponseField>
+
+<ResponseField name="utilization" type="float">
+  Percentage of time the teller was busy (0.0 to 1.0).
+</ResponseField>
+
+<ResponseField name="average_service_time" type="float">
+  Mean service time for customers served by this teller.
+</ResponseField>
+
+<ResponseField name="idle_periods" type="integer">
+  Number of times the teller became idle (starvation count).
+</ResponseField>
+
+### Example Teller Statistics
+
+```json
+{
+  "teller_utilization": {
+    "T-1": 0.89,
+    "T-2": 0.87,
+    "T-3": 0.91
+  },
+  "teller_sessions": {
+    "T-1": 716,
+    "T-2": 698,
+    "T-3": 734
+  }
+}
+```
+
+## Usage in API Responses
+
+Teller objects appear in:
+
+- **[GET /api/simulation/state](/api/simulation#get-simulation-state)** - Returns `tellers` array
+- **[GET /api/tellers/state](/api/tellers#get-tellers-state)** - Dedicated endpoint for teller state
+- **[GET /api/metrics/report](/api/metrics#get-simulation-report)** - Aggregated teller utilization statistics
+
+## Resource Management
+
+### Teller Allocation Strategy
+
+When a customer is ready for service:
+
+1. System iterates through tellers in order (T-1, T-2, T-3, ...)
+2. First teller with status `IDLE` is selected
+3. Customer is assigned to that teller
+4. Service start event is scheduled immediately
+
+<Warning>
+  The simulation processes one customer assignment per event. If multiple tellers are idle and multiple customers are waiting, assignments happen sequentially through the event queue, not simultaneously.
+</Warning>
+
+### Teller Capacity
+
+Total system capacity is determined by:
+
+```
+Capacity (μ) = num_tellers × (1 / service_mean)
+```
+
+**Example:**
+- 3 tellers
+- 5 second average service time
+- Capacity = 3 × (1/5) = 0.6 customers/second = 36 customers/minute
