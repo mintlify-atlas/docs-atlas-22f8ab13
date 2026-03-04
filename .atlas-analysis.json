@@ -1,0 +1,129 @@
+{
+  "projectType": "saas",
+  "projectName": "SimulationBank",
+  "projectDescription": "A discrete event simulation platform for modeling and analyzing bank queue operations with real-time visualization and metrics.",
+  "theme": "aspen",
+  "primaryColor": "#2563eb",
+  "lightColor": "#3b82f6",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/discrete-event-simulation",
+              "concepts/priority-queuing",
+              "concepts/poisson-arrivals",
+              "concepts/resource-management"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/simulation-engine",
+              "features/queue-visualization",
+              "features/metrics-dashboard",
+              "features/configuration"
+            ]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "guides/running-simulations",
+              "guides/configuring-parameters",
+              "guides/interpreting-metrics",
+              "guides/advanced-scenarios"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "architecture/overview",
+              "architecture/domain-model"
+            ]
+          },
+          {
+            "group": "Backend",
+            "pages": [
+              "architecture/backend/simulation-engine",
+              "architecture/backend/customer-module",
+              "architecture/backend/queue-module",
+              "architecture/backend/teller-module",
+              "architecture/backend/metrics-module"
+            ]
+          },
+          {
+            "group": "Frontend",
+            "pages": [
+              "architecture/frontend/components",
+              "architecture/frontend/state-management",
+              "architecture/frontend/visualization"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/overview",
+              "api/simulation",
+              "api/metrics",
+              "api/tellers"
+            ]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "api/models/simulation-config",
+              "api/models/customer",
+              "api/models/teller",
+              "api/models/metrics"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Discrete event simulation engine with priority-based queuing",
+    "Real-time visualization of queue state and teller operations",
+    "Comprehensive metrics dashboard with wait time and throughput analysis",
+    "Configurable arrival rates using Poisson distribution",
+    "Multi-teller resource management with dynamic allocation",
+    "Priority-based customer service (High, Medium, Low)",
+    "Interactive simulation controls (start, pause, stop)",
+    "Hexagonal architecture with clean separation of concerns"
+  ],
+  "publicApiSurface": [
+    "POST /api/simulation/start",
+    "POST /api/simulation/pause",
+    "POST /api/simulation/stop",
+    "GET /api/simulation/state",
+    "GET /api/metrics/report",
+    "DiscreteEventSimulation class",
+    "SimulationConfig",
+    "Customer entity",
+    "Teller entity",
+    "PriorityQueue",
+    "ConfigurableGenerator"
+  ]
+}
